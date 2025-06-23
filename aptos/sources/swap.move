@@ -12,6 +12,8 @@ module ciswap::swap {
     use aptos_framework::resource_account::{Self};
     use aptos_framework::code::{Self};
 
+    use ciswap::pool_math_utils::{Self};
+
     // constants
     const ZERO_ACCOUNT: address = @zero;
     const DEFAULT_ADMIN: address = @default_admin;
@@ -79,6 +81,9 @@ module ciswap::swap {
         balance_virtual_x: coin::Coin<VirtualX<X, Y>>,
         /// Balance of VirtualX<Y, X>
         balance_virtual_y: coin::Coin<VirtualX<Y, X>>,
+        /// Balance locked liquidity, to maintain the minimum liquidity
+        /// Do not count forward to fee, just a lock
+        balance_locked_lp: coin::Coin<LPToken<X, Y>>,
         /// Mint capacity of LP Token
         mint_cap: coin::MintCapability<LPToken<X, Y>>,
         /// Burn capacity of LP Token
@@ -187,7 +192,6 @@ module ciswap::swap {
         if (string::length(&lp_name) > MAX_COIN_NAME_LENGTH) {
             lp_name = string::utf8(b"CiSwap LPs");
         };
-
         // now we init the LP token
         let (burn_cap, freeze_cap, mint_cap) = coin::initialize<LPToken<X, Y>>(
             &resource_signer,
@@ -217,9 +221,9 @@ module ciswap::swap {
             amount_virtual_x,
             &mint_virtual_x_cap
         );
-
         let virtual_token_y_name: string::String = string::utf8(b"ci");
-        string::append(&mut virtual_token_y_name    , name_y);
+
+        string::append(&mut virtual_token_y_name, name_y);
         // now we init the LP token
         let (burn_virtual_y_cap, freeze_virtual_y_cap, mint_virtual_y_cap) = coin::initialize<VirtualX<Y, X>>(
             &resource_signer,
@@ -235,6 +239,15 @@ module ciswap::swap {
             &mint_virtual_y_cap
         );
 
+        // compute the locked liquidity
+        let locked_liquidity = pool_math_utils::calculate_locked_liquidity(
+            amount_virtual_x,
+            amount_virtual_y
+        );
+        // transfer the initial liquidity to the resource account
+        let balance_locked_lp = coin::mint<LPToken<X, Y>>(locked_liquidity, &mint_cap);
+
+        // move the LP token to the resource account
         move_to<TokenPairReserve<X, Y>>(
             &resource_signer,
             TokenPairReserve {
@@ -245,7 +258,8 @@ module ciswap::swap {
                 block_timestamp_last: 0
             }
         );  
-
+        
+        // move the virtual token to the resource account
         move_to<TokenPairMetadata<X, Y>>(
             &resource_signer,
             TokenPairMetadata {
@@ -256,6 +270,7 @@ module ciswap::swap {
                 balance_y: coin::zero<Y>(),
                 balance_virtual_x,
                 balance_virtual_y,
+                balance_locked_lp,
                 mint_cap,
                 burn_cap,
                 freeze_cap,
@@ -268,6 +283,7 @@ module ciswap::swap {
             }
         );
 
+        // move the LP token to the resource account
         move_to<PairEventHolder<X, Y>>(
             &resource_signer,
             PairEventHolder {
@@ -313,6 +329,13 @@ module ciswap::swap {
             coin::value(&meta.balance_virtual_x),
             coin::value(&meta.balance_virtual_y)
         )
+    }
+
+    /// Get locked liquidity in the pool
+    public fun balance_locked_lp<X, Y>(): u64 acquires TokenPairMetadata {
+        let meta =
+            borrow_global<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        coin::value(&meta.balance_locked_lp)
     }
 
 

@@ -15,12 +15,14 @@ module tests_create_pair::tests_create_pair {
     use aptos_framework::signer::{Self};
     use aptos_framework::math64::{Self};
     use ciswap::swap::{Self, LPToken, VirtualX };
+    use ciswap::pool_math_utils::{Self};
 
     // Import the swap module
     const ERROR_TOKEN_A_NOT_ZERO: u64 = 0;
     const ERROR_TOKEN_B_NOT_ZERO: u64 = 1;
     const ERROR_VIRTUAL_TOKEN_A_MISMATCH: u64 = 2;
     const ERROR_VIRTUAL_TOKEN_B_MISMATCH: u64 = 3;
+    const ERROR_LOCKED_LP_TOKEN_BALANCE_MISMATCH: u64 = 4;
 
     public fun setup_test_with_genesis(
         deployer: &signer, 
@@ -108,5 +110,15 @@ module tests_create_pair::tests_create_pair {
             virtual_token_b_balance == 200 * math64::pow(10, 8), 
             ERROR_VIRTUAL_TOKEN_B_MISMATCH
         );
+        // Check locked LP token balance
+        let locked_lp_token_balance = swap::balance_locked_lp<TestSTARCI, TestBUSD>();
+        assert!(
+            locked_lp_token_balance == 
+            pool_math_utils::calculate_locked_liquidity(
+                virtual_token_a_balance, 
+                virtual_token_b_balance
+            )
+        , 
+        ERROR_LOCKED_LP_TOKEN_BALANCE_MISMATCH);
     }
 }
