@@ -33,8 +33,8 @@ module ciswap::pool_math_utils {
         virtual_y: u64,
     ): (u64, u64) {
         assert!(reserve_x > 0 && reserve_y > 0, 0);    
-        let actual_x = reserve_x + (virtual_x * VIRTUAL_MULTIPLIER / 1_000_000);
-        let actual_y = reserve_y + (virtual_y * VIRTUAL_MULTIPLIER / 1_000_000);
+        let actual_x = reserve_x + virtual_x;
+        let actual_y = reserve_y + virtual_y;
         (actual_x, actual_y)
     }
 
@@ -111,5 +111,39 @@ module ciswap::pool_math_utils {
         assert!(amount_in_raw > 0, 2);
         let amount_in: u64 = (amount_in_raw as u64) * 1_000_000 / (1_000_000 - FEE); // apply fee
         amount_in
+    }
+
+    // get the amount of actual tokens out, if reserveX < amount_out
+    // this is the way virtual liquidity work. You will receive virtual token if the reserve is not enough.
+    public fun get_tokens_amount_out(
+        amount_in: u64,
+        x_for_y: bool,
+        reserve_x: u64,
+        reserve_y: u64,
+        virtual_x: u64,
+        virtual_y: u64,
+    ): (u64, u64) {
+       let amount_out = get_amount_out(amount_in, x_for_y, reserve_x, reserve_y, virtual_x, virtual_y);
+       if (x_for_y) {
+            // if reserve_x is not enough, return reserve_x and the amount in minus reserve_x
+            if (amount_out > reserve_x) {
+                return (reserve_x, amount_out - reserve_x);
+            };
+            // if reserve_x is enough, return 0 for reserve_x and the amount in for reserve_y
+            return (amount_out, 0);
+        };
+        // if reserve_y is not enough, return reserve_y and the amount in minus reserve_y
+        if (amount_out > reserve_y) {
+            return (reserve_y, amount_out - reserve_y);
+        };
+        // if reserve_x is enough, return 0 for reserve_x and the amount in for reserve_y
+        (amount_out, 0)
+    }
+
+    // get the amount of tokens when virtual tokens return back into the pool
+    public fun get_redeemed_amount(
+        amount: u64,
+    ): (u64) {
+        amount * VIRTUAL_MULTIPLIER / 1_000_000
     }
 }

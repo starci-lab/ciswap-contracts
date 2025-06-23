@@ -12,6 +12,7 @@ module ciswap::swap {
     use aptos_framework::resource_account::{Self};
     use aptos_framework::code::{Self};
 
+    use ciswap::types_utils::{Self};
     use ciswap::pool_math_utils::{Self};
 
     // constants
@@ -127,6 +128,11 @@ module ciswap::swap {
     // errors
     const ERROR_ALREADY_INITIALIZED: u64 = 0x1;
     const ERROR_NOT_ADMIN: u64 = 0x2;
+    const ERROR_REDEMPTION_NOT_ENOUGH: u64 = 0x3;
+    const ERROR_TOKEN_A_NOT_ZERO: u64 = 0x4;
+    const ERROR_TOKEN_B_NOT_ZERO: u64 = 0x5;
+    const ERROR_TOKEN_NOT_SORTED: u64 = 0x6;
+    const ERROR_INSUFFICIENT_AMOUNT: u64 = 0x7;
     
     // events
     struct PairCreatedEvent has drop, store {
@@ -176,6 +182,11 @@ module ciswap::swap {
         amount_virtual_y: u64
     ) acquires SwapInfo {
         assert!(!is_pair_created<X, Y>(), ERROR_ALREADY_INITIALIZED);
+        // throw if the types are the same
+        if (!types_utils::sort_token_type<X, Y>())
+        {
+            abort(ERROR_TOKEN_NOT_SORTED); // Error: X and Y are the same type
+        };
 
         let sender_addr = signer::address_of(sender);
         let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
@@ -338,6 +349,58 @@ module ciswap::swap {
         coin::value(&meta.balance_locked_lp)
     }
 
+    /// Extract `amount` from this contract
+    fun extract_x<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<X> {
+        assert!(coin::value<X>(&metadata.balance_x) > amount, ERROR_INSUFFICIENT_AMOUNT);
+        coin::extract(&mut metadata.balance_x, amount)
+    }
+
+    /// Extract `amount` from this contract
+    fun extract_y<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<Y> {
+        assert!(coin::value<Y>(&metadata.balance_y) > amount, ERROR_INSUFFICIENT_AMOUNT);
+        coin::extract(&mut metadata.balance_y, amount)
+    }
+
+    /// Redeem the token with virtual token
+    public entry fun redeem<X, Y>(
+        sender: &signer,
+        virtual_coin: coin::Coin<VirtualX<X, Y>>,
+    ) acquires TokenPairMetadata, TokenPairReserve {
+        // get the sender
+        let sender_addr = signer::address_of(sender);
+        let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        let reserve = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        let amount = coin::value(&virtual_coin);
+        // get the redeemed amount
+        let redeemed_amount = pool_math_utils::get_redeemed_amount(amount);
+        // get the x for y
+        let x_for_y: bool = types_utils::sort_token_type<X, Y>();
+        assert!(coin::value(&metadata.balance_virtual_x) >= redeemed_amount, ERROR_REDEMPTION_NOT_ENOUGH);
+        // burn the virtual token
+        coin::burn<VirtualX<X, Y>>(virtual_coin, &mut metadata.burn_virtual_x_cap);
+        // btw, mint the virtual token to the resource account to keep the liquidity
+        coin::mint<VirtualX<X, Y>>(redeemed_amount, &mut metadata.mint_virtual_x_cap);
+        // update the reserve
+        if (x_for_y) {
+            // if x_for_y, then reserve_x is the T0 token
+            reserve.reserve_virtual_x = reserve.reserve_virtual_x - amount + redeemed_amount;
+            reserve.reserve_y = reserve.reserve_x - redeemed_amount;
+            // do transfer the token x to the sender
+            let coins_x_out = coin::zero<X>(); 
+            coin::merge(&mut coins_x_out, extract_x(redeemed_amount, metadata));
+            // transfer the token x to the sender
+            coin::deposit(signer::address_of(sender), coins_x_out);
+        } else {
+            // if not x_for_y, then reserve_y is the T0 token
+            reserve.reserve_virtual_y = reserve.reserve_virtual_y - amount + redeemed_amount;
+            reserve.reserve_y = reserve.reserve_x - redeemed_amount;
+            // do transfer the token x to the sender
+            let coins_y_out = coin::zero<Y>(); 
+            coin::merge(&mut coins_y_out, extract_y(redeemed_amount, metadata));
+            // transfer the token x to the sender
+            coin::deposit(signer::address_of(sender), coins_y_out);
+        }
+    }
 
     #[test_only]
     public fun initialize(sender: &signer) {
