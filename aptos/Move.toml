@@ -1,0 +1,26 @@
+[package]
+name = "ciswap"
+version = "1.0.0"
+authors = [
+    "Stacy",
+]
+
+[addresses]
+tests_coins = "0x16"
+tests_create_pair = "0x17"
+zero = "0000000000000000000000000000000000000000000000000000000000000000"
+default_admin = "_"
+ciswap = "_"
+deployer = "_"
+
+[dev-addresses]
+default_admin = "0xc0ffee"
+ciswap = "c5ac7cb0c21cba2588ac8e8fa385a6770c9530a733b4e3b438c63b9fe45bdbf2"
+deployer = "0xdeadbeef"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]
