@@ -1,5 +1,5 @@
 #[test_only]
-module ciswap::tests_create_pair {
+module ciswap::tests_add_liquidity {
     use tests_coins::test_coins::{
         Self, 
         TestSTARCI, 
@@ -62,7 +62,7 @@ module ciswap::tests_create_pair {
     }
 
     #[test(deployer = @deployer, admin = @default_admin, resource_account = @ciswap, treasury = @0x23456, alice = @0x12346, aptos_framework = @0x1)]
-    fun test_create_pair(
+    fun test_add_liqudity(
         deployer: &signer,
         admin: &signer,
         resource_account: &signer,
@@ -77,48 +77,30 @@ module ciswap::tests_create_pair {
         let coin_owner = test_coins::init_coins();
         test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
         test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
-
+        
         // Create a pair
         swap::create_pair<TestSTARCI, TestBUSD>(
             alice,
             100 * math64::pow(10, 8),
             200 * math64::pow(10, 8)
         );
-        // Check token A balance
-        let (
-            token_a_balance, 
-            token_b_balance, 
-            virtual_token_a_balance, 
-            virtual_token_b_balance
-        ) = swap::token_balances<TestSTARCI, TestBUSD>();
-        assert!(
-            token_a_balance == 0, 
-            ERROR_TOKEN_A_NOT_ZERO
+
+        // Check the initial balances
+        let k_last = swap::k_sqrt<TestSTARCI, TestBUSD>();
+
+        // add liquidity
+        swap::add_liquidity<TestSTARCI, TestBUSD>(
+            alice,
+            100,
+            200
         );
-        // Check token B balance
-        assert!(
-            token_b_balance == 0, 
-            ERROR_TOKEN_B_NOT_ZERO
-        );
-        // Check virtual token A balance
-        assert!(
-            virtual_token_a_balance == 100 * math64::pow(10, 8), 
-            ERROR_VIRTUAL_TOKEN_A_MISMATCH
-        );
-        // Check virtual token B balance
-        assert!(
-            virtual_token_b_balance == 200 * math64::pow(10, 8), 
-            ERROR_VIRTUAL_TOKEN_B_MISMATCH
-        );
-        // Check locked LP token balance
-        let locked_lp_token_balance = swap::balance_locked_lp<TestSTARCI, TestBUSD>();
-        assert!(
-            locked_lp_token_balance == 
-            pool_math_utils::calculate_locked_liquidity(
-                virtual_token_a_balance, 
-                virtual_token_b_balance
-            )
-        , 
-        ERROR_LOCKED_LP_TOKEN_BALANCE_MISMATCH);
+        let k_last_after = swap::k_sqrt<TestSTARCI, TestBUSD>();
+        // check your LP token balance
+        let lp_token_balance = coin::balance<LPToken<TestSTARCI, TestBUSD>>(signer::address_of(alice));
+        // get the fee amount
+        // lp balance equal the differ in k
+        assert!(lp_token_balance + swap::fee_amount<TestSTARCI, TestBUSD>() == (
+            k_last_after - k_last
+        ), ERROR_LOCKED_LP_TOKEN_BALANCE_MISMATCH);
     }
 }

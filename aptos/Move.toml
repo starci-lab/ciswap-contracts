@@ -7,7 +7,7 @@ authors = [
 
 [addresses]
 tests_coins = "0x16"
-tests_create_pair = "0x17"
+tests_add_liquidity = "0x17"
 zero = "0000000000000000000000000000000000000000000000000000000000000000"
 default_admin = "_"
 ciswap = "_"

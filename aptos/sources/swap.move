@@ -11,6 +11,7 @@ module ciswap::swap {
     use aptos_framework::account::{Self};
     use aptos_framework::resource_account::{Self};
     use aptos_framework::code::{Self};
+    use aptos_framework::math128::{Self};
 
     use ciswap::types_utils::{Self};
     use ciswap::pool_math_utils::{Self};
@@ -72,8 +73,8 @@ module ciswap::swap {
         creator: address,
         /// fee amount , record fee amount which is not withdrawed
         fee_amount: coin::Coin<LPToken<X, Y>>,
-        /// It's reserve_x * reserve_y, as of immediately after the most recent liquidity event
-        k_last: u128,
+        /// It's the k_sqrt at the last mint
+        k_sqrt_last: u64,
         /// T0 token balance
         balance_x: coin::Coin<X>,
         /// T1 token balance
@@ -126,13 +127,16 @@ module ciswap::swap {
         pair_created: event::EventHandle<PairCreatedEvent>
     }
     // errors
-    const ERROR_ALREADY_INITIALIZED: u64 = 0x1;
-    const ERROR_NOT_ADMIN: u64 = 0x2;
-    const ERROR_REDEMPTION_NOT_ENOUGH: u64 = 0x3;
-    const ERROR_TOKEN_A_NOT_ZERO: u64 = 0x4;
-    const ERROR_TOKEN_B_NOT_ZERO: u64 = 0x5;
-    const ERROR_TOKEN_NOT_SORTED: u64 = 0x6;
-    const ERROR_INSUFFICIENT_AMOUNT: u64 = 0x7;
+    const ERROR_ALREADY_INITIALIZED: u64 = 1;
+    const ERROR_NOT_ADMIN: u64 = 2;
+    const ERROR_REDEMPTION_NOT_ENOUGH: u64 = 3;
+    const ERROR_TOKEN_A_NOT_ZERO: u64 = 4;
+    const ERROR_TOKEN_B_NOT_ZERO: u64 = 5;
+    const ERROR_TOKEN_NOT_SORTED: u64 = 6;
+    const ERROR_INSUFFICIENT_AMOUNT: u64 = 7;
+    const ERROR_INVALID_AMOUNT: u64 = 8;
+    const ERROR_INSUFFICIENT_LIQUIDITY: u64 = 9;
+    const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 10;
     
     // events
     struct PairCreatedEvent has drop, store {
@@ -146,7 +150,6 @@ module ciswap::swap {
         virtual_token_y: string::String,
         balance_virtual_token_y: u64
     }
-
 
     // methods
     fun init_module(sender: &signer) {
@@ -182,12 +185,6 @@ module ciswap::swap {
         amount_virtual_y: u64
     ) acquires SwapInfo {
         assert!(!is_pair_created<X, Y>(), ERROR_ALREADY_INITIALIZED);
-        // throw if the types are the same
-        if (!types_utils::sort_token_type<X, Y>())
-        {
-            abort(ERROR_TOKEN_NOT_SORTED); // Error: X and Y are the same type
-        };
-
         let sender_addr = signer::address_of(sender);
         let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
         let resource_signer = account::create_signer_with_capability(&swap_info.signer_cap);
@@ -264,8 +261,8 @@ module ciswap::swap {
             TokenPairReserve {
                 reserve_x: 0,
                 reserve_y: 0,
-                reserve_virtual_x: 0,
-                reserve_virtual_y: 0,
+                reserve_virtual_x: amount_virtual_x,
+                reserve_virtual_y: amount_virtual_y,
                 block_timestamp_last: 0
             }
         );  
@@ -276,7 +273,7 @@ module ciswap::swap {
             TokenPairMetadata {
                 creator: sender_addr,
                 fee_amount: coin::zero<LPToken<X, Y>>(),
-                k_last: 0,
+                k_sqrt_last: locked_liquidity,
                 balance_x: coin::zero<X>(),
                 balance_y: coin::zero<Y>(),
                 balance_virtual_x,
@@ -321,14 +318,6 @@ module ciswap::swap {
             }
         );
     }
-
-    // Set the fee recipient address
-    public entry fun set_fee_to(sender: &signer, new_fee_to: address) acquires SwapInfo {
-        let sender_addr = signer::address_of(sender);
-        let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
-        assert!(sender_addr == swap_info.admin, ERROR_NOT_ADMIN);
-        swap_info.fee_to = new_fee_to;
-    }
     
     /// The amount of balance currently in pools of the liquidity pair
     public fun token_balances<X, Y>(): (u64, u64, u64, u64) acquires TokenPairMetadata {
@@ -362,44 +351,332 @@ module ciswap::swap {
     }
 
     /// Redeem the token with virtual token
-    public entry fun redeem<X, Y>(
-        sender: &signer,
-        virtual_coin: coin::Coin<VirtualX<X, Y>>,
-    ) acquires TokenPairMetadata, TokenPairReserve {
-        // get the sender
-        let sender_addr = signer::address_of(sender);
+    // public entry fun redeem<X, Y>(
+    //     sender: &signer,
+    //     virtual_coin: coin::Coin<VirtualX<X, Y>>,
+    // ) acquires TokenPairMetadata, TokenPairReserve {
+    //     // get the sender
+    //     let sender_addr = signer::address_of(sender);
+    //     let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    //     let reserve = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+    //     let amount = coin::value(&virtual_coin);
+    //     // get the redeemed amount
+    //     let redeemed_amount = pool_math_utils::get_redeemed_amount(amount);
+    //     // get the x for y
+    //     let x_for_y: bool = types_utils::sort_token_type<X, Y>();
+    //     assert!(coin::value(&metadata.balance_virtual_x) >= redeemed_amount, ERROR_REDEMPTION_NOT_ENOUGH);
+    //     // burn the virtual token
+    //     coin::burn<VirtualX<X, Y>>(virtual_coin, &mut metadata.burn_virtual_x_cap);
+    //     // btw, mint the virtual token to the resource account to keep the liquidity
+    //     let redeemed = coin::mint<VirtualX<X, Y>>(redeemed_amount, &mut metadata.mint_virtual_x_cap);
+    //     // merge the redeemed amount to the balance of virtual token
+    //     deposit_x<X, Y>(redeemed);
+    //     // update the reserve
+    //     if (x_for_y) {
+    //         // if x_for_y, then reserve_x is the T0 token
+    //         reserve.reserve_virtual_x = reserve.reserve_virtual_x - amount + redeemed_amount;
+    //         reserve.reserve_y = reserve.reserve_x - redeemed_amount;
+    //         // do transfer the token x to the sender
+    //         let coins_x_out = coin::zero<X>(); 
+    //         coin::merge(&mut coins_x_out, extract_x(redeemed_amount, metadata));
+    //         // transfer the token x to the sender
+    //         coin::deposit(signer::address_of(sender), coins_x_out);
+    //     } else {
+    //         // if not x_for_y, then reserve_y is the T0 token
+    //         reserve.reserve_virtual_y = reserve.reserve_virtual_y - amount + redeemed_amount;
+    //         reserve.reserve_y = reserve.reserve_x - redeemed_amount;
+    //         // do transfer the token x to the sender
+    //         let coins_y_out = coin::zero<Y>(); 
+    //         coin::merge(&mut coins_y_out, extract_y(redeemed_amount, metadata));
+    //         // transfer the token x to the sender
+    //         coin::deposit(signer::address_of(sender), coins_y_out);
+    //     }
+    // }
+
+    // get the token reserves
+    public fun token_reserves<X, Y>(): (
+        u64, 
+        u64, 
+        u64,
+        u64
+    ) acquires TokenPairReserve {
+        let reserve = borrow_global<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        (
+            reserve.reserve_x, 
+            reserve.reserve_y, 
+            reserve.reserve_virtual_x, 
+            reserve.reserve_virtual_y
+        )
+    }   
+
+    fun deposit_x<X, Y>(amount: coin::Coin<X>) acquires TokenPairMetadata {
+        let metadata =
+            borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        coin::merge(&mut metadata.balance_x, amount);
+    }
+
+    fun deposit_y<X, Y>(amount: coin::Coin<Y>) acquires TokenPairMetadata {
+        let metadata =
+            borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        coin::merge(&mut metadata.balance_y, amount);
+    }
+
+    fun mint_lp_to<X, Y>(
+        to: address,
+        amount: u64,
+        mint_cap: &coin::MintCapability<LPToken<X, Y>>
+    ) {
+        let coins = coin::mint<LPToken<X, Y>>(amount, mint_cap);
+        coin::deposit(to, coins);
+    }
+
+    /// Mint LP Tokens to account
+    fun mint_lp<X, Y>(amount: u64, mint_cap: &coin::MintCapability<LPToken<X, Y>>): coin::Coin<LPToken<X, Y>> {
+        coin::mint<LPToken<X, Y>>(amount, mint_cap)
+    }
+
+    /// Get the total supply of LP Tokens
+    public fun total_lp_supply<X, Y>(): u128 {
+        option::get_with_default(
+            &coin::supply<LPToken<X, Y>>(),
+            0u128
+        )
+    }
+
+    public fun k_sqrt<X, Y>() : u64 acquires TokenPairMetadata {
+        let metadata = borrow_global<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        metadata.k_sqrt_last
+    }
+
+    public fun fee_amount<X, Y>(): u64 acquires TokenPairMetadata {
+        let metadata = borrow_global<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        coin::value(&metadata.fee_amount)
+    }
+
+    // mint LP tokens for the liquidity provider
+    fun mint<X, Y>(): (coin::Coin<LPToken<X, Y>>, u64) acquires TokenPairReserve, TokenPairMetadata {
         let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
-        let reserve = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
-        let amount = coin::value(&virtual_coin);
-        // get the redeemed amount
-        let redeemed_amount = pool_math_utils::get_redeemed_amount(amount);
-        // get the x for y
-        let x_for_y: bool = types_utils::sort_token_type<X, Y>();
-        assert!(coin::value(&metadata.balance_virtual_x) >= redeemed_amount, ERROR_REDEMPTION_NOT_ENOUGH);
-        // burn the virtual token
-        coin::burn<VirtualX<X, Y>>(virtual_coin, &mut metadata.burn_virtual_x_cap);
-        // btw, mint the virtual token to the resource account to keep the liquidity
-        coin::mint<VirtualX<X, Y>>(redeemed_amount, &mut metadata.mint_virtual_x_cap);
-        // update the reserve
-        if (x_for_y) {
-            // if x_for_y, then reserve_x is the T0 token
-            reserve.reserve_virtual_x = reserve.reserve_virtual_x - amount + redeemed_amount;
-            reserve.reserve_y = reserve.reserve_x - redeemed_amount;
-            // do transfer the token x to the sender
-            let coins_x_out = coin::zero<X>(); 
-            coin::merge(&mut coins_x_out, extract_x(redeemed_amount, metadata));
-            // transfer the token x to the sender
-            coin::deposit(signer::address_of(sender), coins_x_out);
-        } else {
-            // if not x_for_y, then reserve_y is the T0 token
-            reserve.reserve_virtual_y = reserve.reserve_virtual_y - amount + redeemed_amount;
-            reserve.reserve_y = reserve.reserve_x - redeemed_amount;
-            // do transfer the token x to the sender
-            let coins_y_out = coin::zero<Y>(); 
-            coin::merge(&mut coins_y_out, extract_y(redeemed_amount, metadata));
-            // transfer the token x to the sender
-            coin::deposit(signer::address_of(sender), coins_y_out);
-        }
+        let (
+            balance_x, 
+            balance_y, 
+            balance_virtual_x,
+            balance_virtual_y
+        ) = (
+            coin::value(&metadata.balance_x), 
+            coin::value(&metadata.balance_y),
+            coin::value(&metadata.balance_virtual_x),
+            coin::value(&metadata.balance_virtual_y)
+        );
+
+        let reserves = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        // get the k sqrt
+        let root_k_sqrt = pool_math_utils::get_k_sqrt(
+            reserves.reserve_x, 
+            reserves.reserve_y, 
+            reserves.reserve_virtual_x,
+            reserves.reserve_virtual_y
+        );
+        // get the k
+        let k_sqrt = pool_math_utils::get_k_sqrt(
+            balance_x, 
+            balance_y, 
+            balance_virtual_x,
+            balance_virtual_y
+        ); 
+        // calculate the k difference
+        // the k_diff is the difference between the current k and the k at the time of last mint
+        let k_sqrt_diff = k_sqrt - root_k_sqrt; 
+
+        // get the fee and 
+        let (to_lp, fee) = pool_math_utils::get_liquidity_and_fee_amount(
+            k_sqrt_diff,
+        );
+        // mint fee for the pool
+        //let fee_amount = mint_fee<X, Y>(reserves.reserve_x, reserves.reserve_y, metadata);
+
+        //Need to add fee amount which have not been mint.
+        let lp = mint_lp<X, Y>((to_lp as u64), &metadata.mint_cap);
+        let fee_coin = mint_lp<X, Y>(fee, &metadata.mint_cap);
+        // merge the fee amount to the fee amount in the metadata
+        coin::merge(&mut metadata.fee_amount, fee_coin);
+        // update<X, Y>(balance_x, balance_y, reserves);
+        metadata.k_sqrt_last = k_sqrt;
+        (lp, fee)
+    }
+
+    fun add_liquidity_direct<X, Y>(
+        x: coin::Coin<X>,
+        y: coin::Coin<Y>,
+    ): (
+        u64, 
+        u64, 
+        coin::Coin<LPToken<X, Y>>, u64, 
+        coin::Coin<X>, 
+        coin::Coin<Y>
+    ) acquires TokenPairReserve, TokenPairMetadata {
+        let amount_x = coin::value(&x);
+        let amount_y = coin::value(&y);
+        let (
+            reserve_x, 
+            reserve_y, 
+            reserve_virtual_x, 
+            reserve_virtual_y
+        ) = token_reserves<X, Y>();
+        let (a_x, a_y) = {
+            let amount_y_optimal = pool_math_utils::quote(
+                amount_x, 
+                reserve_x, 
+                reserve_y, 
+                reserve_virtual_x,
+                reserve_virtual_y
+                );
+            if (amount_y_optimal <= amount_y) {
+                (amount_x, amount_y_optimal)
+            } else {
+                let amount_x_optimal = pool_math_utils::quote(
+                    amount_y, 
+                    reserve_y,
+                    reserve_x,
+                    reserve_virtual_y,
+                    reserve_virtual_x
+                );
+                assert!(amount_x_optimal <= amount_x, ERROR_INVALID_AMOUNT);
+                (amount_x_optimal, amount_y)
+            }
+        };
+
+        assert!(a_x <= amount_x, ERROR_INSUFFICIENT_AMOUNT);
+        assert!(a_y <= amount_y, ERROR_INSUFFICIENT_AMOUNT);
+
+        let left_x = coin::extract(&mut x, amount_x - a_x);
+        let left_y = coin::extract(&mut y, amount_y - a_y);
+        deposit_x<X, Y>(x);
+        deposit_y<X, Y>(y);
+        let (lp, fee_amount) = mint<X, Y>();
+        (a_x, a_y, lp, fee_amount, left_x, left_y)
+    }
+
+    public fun check_or_register_coin_store<X>(sender: &signer) {
+        if (!coin::is_account_registered<X>(signer::address_of(sender))) {
+            coin::register<X>(sender);
+        };
+    }
+
+
+    public fun add_liquidity<X, Y>(
+        sender: &signer,
+        amount_x: u64,
+        amount_y: u64
+    ): (u64, u64, u64) acquires TokenPairReserve, TokenPairMetadata, PairEventHolder {
+        let (a_x, a_y, coin_lp, fee_amount, coin_left_x, coin_left_y) = add_liquidity_direct(coin::withdraw<X>(sender, amount_x), coin::withdraw<Y>(sender, amount_y));
+        let sender_addr = signer::address_of(sender);
+        let lp_amount = coin::value(&coin_lp);
+        assert!(lp_amount > 0, ERROR_INSUFFICIENT_LIQUIDITY);
+        check_or_register_coin_store<LPToken<X, Y>>(sender);
+        coin::deposit(sender_addr, coin_lp);
+        coin::deposit(sender_addr, coin_left_x);
+        coin::deposit(sender_addr, coin_left_y);
+
+        let pair_event_holder = borrow_global_mut<PairEventHolder<X, Y>>(RESOURCE_ACCOUNT);
+        event::emit_event<AddLiquidityEvent<X, Y>>(
+            &mut pair_event_holder.add_liquidity,
+            AddLiquidityEvent<X, Y> {
+                user: sender_addr,
+                amount_x: a_x,
+                amount_y: a_y,
+                liquidity: lp_amount,
+                fee_amount: (fee_amount as u64),
+            }
+        );
+        (a_x, a_y, lp_amount)
+    }
+
+    public entry fun set_fee_to(sender: &signer, new_fee_to: address) acquires SwapInfo {
+        let sender_addr = signer::address_of(sender);
+        let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
+        assert!(sender_addr == swap_info.admin, ERROR_NOT_ADMIN);
+        swap_info.fee_to = new_fee_to;
+    }
+
+    public entry fun set_admin(sender: &signer, new_admin: address) acquires SwapInfo {
+        let sender_addr = signer::address_of(sender);
+        let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
+        assert!(sender_addr == swap_info.admin, ERROR_NOT_ADMIN);
+        swap_info.admin = new_admin;
+    }
+
+    public entry fun upgrade_swap(
+        sender: &signer, 
+        metadata_serialized: vector<u8>, 
+        code: vector<vector<u8>>
+    ) acquires SwapInfo {
+        let sender_addr = signer::address_of(sender);
+        let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
+        assert!(sender_addr == swap_info.admin, ERROR_NOT_ADMIN);
+        let resource_signer = account::create_signer_with_capability(&swap_info.signer_cap);
+        code::publish_package_txn(&resource_signer, metadata_serialized, code);
+    }
+
+    fun update<X, Y>(
+        balance_x: u64, 
+        balance_y: u64, 
+        balance_virtual_x: u64, 
+        balance_virtual_y: u64,
+        reserve: &mut TokenPairReserve<X, Y>
+    ) {
+        let block_timestamp = timestamp::now_seconds();
+        reserve.reserve_x = balance_x;
+        reserve.reserve_y = balance_y;
+        reserve.reserve_virtual_x = balance_virtual_x;
+        reserve.reserve_virtual_y = balance_virtual_y;
+        reserve.block_timestamp_last = block_timestamp;
+    }
+
+    fun swap<X, Y>(
+        amount_x_out: u64,
+        amount_y_out: u64
+    ): (coin::Coin<X>, coin::Coin<Y>) acquires TokenPairReserve, TokenPairMetadata {
+        assert!(amount_x_out > 0 || amount_y_out > 0, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
+
+        let reserves = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        assert!(amount_x_out < reserves.reserve_x && amount_y_out < reserves.reserve_y, ERROR_INSUFFICIENT_LIQUIDITY);
+
+        let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+
+        let coins_x_out = coin::zero<X>();
+        let coins_y_out = coin::zero<Y>();
+        if (amount_x_out > 0) coin::merge(&mut coins_x_out, extract_x(amount_x_out, metadata));
+        if (amount_y_out > 0) coin::merge(&mut coins_y_out, extract_y(amount_y_out, metadata));
+        let (balance_x, balance_y) = token_balances<X, Y>();
+
+        let amount_x_in = if (balance_x > reserves.reserve_x - amount_x_out) {
+            balance_x - (reserves.reserve_x - amount_x_out)
+        } else { 0 };
+        let amount_y_in = if (balance_y > reserves.reserve_y - amount_y_out) {
+            balance_y - (reserves.reserve_y - amount_y_out)
+        } else { 0 };
+
+        assert!(amount_x_in > 0 || amount_y_in > 0, ERROR_INSUFFICIENT_INPUT_AMOUNT);
+
+        let prec = (PRECISION as u128);
+        let balance_x_adjusted = (balance_x as u128) * prec - (amount_x_in as u128) * 25u128;
+        let balance_y_adjusted = (balance_y as u128) * prec - (amount_y_in as u128) * 25u128;
+        let reserve_x_adjusted = (reserves.reserve_x as u128) * prec;
+        let reserve_y_adjusted = (reserves.reserve_y as u128) * prec;
+
+        // No need to use u256 when balance_x_adjusted * balance_y_adjusted and reserve_x_adjusted * reserve_y_adjusted are less than MAX_U128.
+        let compare_result = if(balance_x_adjusted > 0 && reserve_x_adjusted > 0 && MAX_U128 / balance_x_adjusted > balance_y_adjusted && MAX_U128 / reserve_x_adjusted > reserve_y_adjusted){
+            balance_x_adjusted * balance_y_adjusted >= reserve_x_adjusted * reserve_y_adjusted
+        }else{
+            let p: u256 = (balance_x_adjusted as u256) * (balance_y_adjusted as u256);
+            let k: u256 = (reserve_x_adjusted as u256) * (reserve_y_adjusted as u256);
+            p >= k
+        };
+        assert!(compare_result, ERROR_K);
+
+        update(balance_x, balance_y, reserves);
+
+        (coins_x_out, coins_y_out)
     }
 
     #[test_only]
