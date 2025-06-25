@@ -11,9 +11,6 @@ module ciswap::swap {
     use aptos_framework::account::{Self};
     use aptos_framework::resource_account::{Self};
     use aptos_framework::code::{Self};
-    use aptos_framework::math128::{Self};
-
-    use ciswap::types_utils::{Self};
     use ciswap::pool_math_utils::{Self};
 
     // constants

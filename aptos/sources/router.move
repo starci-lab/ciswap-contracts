@@ -1,21 +1,5 @@
 module ciswap::router {
-    use std::signer::{Self};
-    use std::option::{Self};
-    use std::string::{Self};
-    use aptos_std::type_info::{Self};
-    use aptos_std::event::{Self};
-
-    use aptos_framework::coin::{Self};
-    use aptos_framework::timestamp::{Self};
-    use aptos_framework::account::{Self};
-    use aptos_framework::resource_account::{Self};
-    use aptos_framework::code::{Self};
-    use aptos_framework::math128::{Self};
-
     use ciswap::swap::{Self};
-    use ciswap::types_utils::{Self};
-    use ciswap::pool_math_utils::{Self};
-
     const E_PAIR_NOT_CREATED: u64 = 0;
 
     fun is_pair_created_internal<X, Y>(){
