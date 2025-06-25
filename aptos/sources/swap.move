@@ -820,6 +820,46 @@ module ciswap::swap {
         );
     }
 
+    public fun get_amount_out<X, Y>(
+        amount_in: u64,
+        x_for_y: bool
+    ): (u64, u64) acquires TokenPairReserve {
+        let (
+            reserve_x, 
+            reserve_y, 
+            reserve_virtual_x, 
+            reserve_virtual_y
+        ) = token_reserves<X, Y>();
+        pool_math_utils::get_tokens_amount_out(
+            amount_in, 
+            x_for_y, 
+            reserve_x, 
+            reserve_y, 
+            reserve_virtual_x, 
+            reserve_virtual_y
+        )
+    }
+
+    public fun get_amount_in<X, Y>(
+        amount_out: u64,
+        x_for_y: bool
+    ): ( u64 ) acquires TokenPairReserve {
+        let (
+            reserve_x, 
+            reserve_y, 
+            reserve_virtual_x, 
+            reserve_virtual_y
+        ) = token_reserves<X, Y>();
+        pool_math_utils::get_amount_in(
+            amount_out,
+            x_for_y,
+            reserve_x,
+            reserve_y,
+            reserve_virtual_x,
+            reserve_virtual_y,
+        )
+    }
+
     #[test_only]
     public fun initialize(sender: &signer) {
         init_module(sender);
