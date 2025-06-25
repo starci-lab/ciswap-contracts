@@ -50,7 +50,6 @@ module ciswap::pool_math_utils {
         reserve_virtual_y: u64,
     ): u128 {
         assert!(reserve_virtual_x > 0 && reserve_virtual_y > 0, 0);
-        assert!(reserve_x > 0 && reserve_y > 0, 0);
         let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_virtual_x, reserve_virtual_y);
         let k_last = (actual_x as u128) * (actual_y as u128);
         k_last
@@ -149,15 +148,15 @@ module ciswap::pool_math_utils {
     );
        if (x_for_y) {
             // if reserve_x is not enough, return reserve_x and the amount in minus reserve_x
-            if (amount_out > reserve_virtual_x) {
-                return (reserve_x, amount_out - reserve_virtual_x);
+            if (amount_out > reserve_y) {
+                return (reserve_y, amount_out - reserve_y);
             };
             // if reserve_x is enough, return 0 for reserve_x and the amount in for reserve_y
             return (amount_out, 0);
         };
         // if reserve_y is not enough, return reserve_y and the amount in minus reserve_y
-        if (amount_out > reserve_virtual_y) {
-            return (reserve_virtual_y, amount_out - reserve_virtual_y);
+        if (amount_out > reserve_x) {
+            return (reserve_x, amount_out - reserve_x);
         };
         // if reserve_x is enough, return 0 for reserve_x and the amount in for reserve_y
         (amount_out, 0)

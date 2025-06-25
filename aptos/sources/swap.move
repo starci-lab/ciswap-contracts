@@ -646,16 +646,14 @@ module ciswap::swap {
 
     /// in ciswap, we use amount_x_in and amount_y_in to calculate the output amount
     /// because the output depends on the token that the
-    fun swap<X, Y>(
+    public fun swap<X, Y>(
+        sender: &signer,
         amount_in: u64,
         x_for_y: bool,
         recipient: address,
         limit_amount_calculated: u64
     ): (
-        coin::Coin<X>, 
-        coin::Coin<VirtualX<X, Y>>,
-        coin::Coin<Y>, 
-        coin::Coin<VirtualX<Y, X>>
+        u64, u64
     ) acquires TokenPairReserve, TokenPairMetadata {
         assert!(amount_in > 0, ERROR_INSUFFICIENT_INPUT_AMOUNT);
         let reserves = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
@@ -674,11 +672,6 @@ module ciswap::swap {
             reserves.reserve_virtual_x, 
             reserves.reserve_virtual_y
         );
-        // define the coins to be returned
-        let coins_x_out = coin::zero<X>();
-        let virtual_coins_x_out = coin::zero<VirtualX<X, Y>>();
-        let coins_y_out = coin::zero<Y>();
-        let virtual_coins_y_out = coin::zero<VirtualX<Y, X>>();
 
         // get the actual reserves
         let (actual_x, actual_y) = pool_math_utils::get_actual_x_y(
@@ -689,8 +682,14 @@ module ciswap::swap {
         );
         // check if the amount out is less than the actual reserves
         if (x_for_y) {
+            let coin = coin::withdraw<X>(sender, amount_in);
+            // deposit the token x to the pool
+            coin::merge(&mut metadata.balance_x, coin);
             // if x_for_y, then reserve_x is the T0 token
             assert!(amount_out <= actual_y, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
+            // define the coins to be returned
+            let coins_y_out = coin::zero<Y>();
+            let virtual_coins_y_out = coin::zero<VirtualX<Y, X>>();
             // do transfer the token x to the sender
             coin::merge(
                 &mut coins_y_out, 
@@ -713,9 +712,20 @@ module ciswap::swap {
             reserves.reserve_y -= amount_out;
             reserves.reserve_virtual_y -= amount_virtual_out;
             reserves.reserve_x += amount_in;
+
+            // deposit the token y to the recipient
+            coin::deposit(recipient, coins_y_out);
+            coin::deposit(recipient, virtual_coins_y_out);
         } else {
+            let coin = coin::withdraw<Y>(sender, amount_in);
+            // deposit the token x to the pool
+            coin::merge(&mut metadata.balance_y, coin);
             // if x_for_y, then reserve_x is the T0 token
             assert!(amount_out <= actual_x, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
+            // do transfer the token x to the sender
+            let coins_x_out = coin::zero<X>();
+            let virtual_coins_x_out = coin::zero<VirtualX<X, Y>>();
+
             // do transfer the token x to the sender
             coin::merge(
                 &mut coins_x_out, 
@@ -738,13 +748,13 @@ module ciswap::swap {
             reserves.reserve_x -= amount_out;
             reserves.reserve_virtual_x -= amount_virtual_out;
             reserves.reserve_y += amount_in;
+
+            // deposit the token y to the recipient
+            coin::deposit(recipient, coins_x_out);
+            coin::deposit(recipient, virtual_coins_x_out);
         };
-        (
-            coins_x_out, 
-            virtual_coins_x_out, 
-            coins_y_out, 
-            virtual_coins_y_out
-        )
+
+        (amount_out, amount_virtual_out)
     }
 
     #[test_only]
