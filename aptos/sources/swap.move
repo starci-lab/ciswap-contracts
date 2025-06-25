@@ -146,6 +146,7 @@ module ciswap::swap {
     const ERROR_INSUFFICIENT_LIQUIDITY: u64 = 9;
     const ERROR_INSUFFICIENT_INPUT_AMOUNT: u64 = 10;
     const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 11;
+    const ERROR_PAIR_NOT_CREATED: u64 = 12;
     
     // events
     struct PairCreatedEvent has drop, store {
@@ -858,6 +859,13 @@ module ciswap::swap {
             reserve_virtual_x,
             reserve_virtual_y,
         )
+    }
+
+    fun is_pair_created_internal<X, Y>(){
+        assert!(
+            is_pair_created<X, Y>() || is_pair_created<Y, X>(), 
+            ERROR_PAIR_NOT_CREATED
+        );
     }
 
     #[test_only]
