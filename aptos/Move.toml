@@ -1,25 +1,26 @@
 [package]
 name = "ciswap"
-version = "1.0.0"
+version = "0.0.0"
 authors = [
     "Stacy",
 ]
 
 [addresses]
+zero = "0000000000000000000000000000000000000000000000000000000000000000"
+default_admin = "4181227708680af48320e94991257fa01d7d953518f10589390895a02996e139"
+ciswap = "_"
+deployer = "4181227708680af48320e94991257fa01d7d953518f10589390895a02996e139"
 tests_coins = "0x16"
 tests_add_liquidity = "0x17"
-zero = "0000000000000000000000000000000000000000000000000000000000000000"
-default_admin = "33a340e0dd7c1eb06288d20d791a738d1375c50c930499d1267232274fc4c019"
-ciswap = "2e79b408b8bc70a76e0bb8c604482d55c1da047474154dfee6fbbf73e3db7105"
-deployer = "33a340e0dd7c1eb06288d20d791a738d1375c50c930499d1267232274fc4c019"
 
 # [dev-addresses]
 # default_admin = "0xc0ffee"
 # ciswap = "c5ac7cb0c21cba2588ac8e8fa385a6770c9530a733b4e3b438c63b9fe45bdbf2"
 # deployer = "0xdeadbeef"
 
-[dependencies]
-AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "mainnet" }
-AptosStdlib = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-stdlib/", rev = "mainnet" }
+[dev-addresses]
 
-[dev-dependencies]
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
