@@ -36,13 +36,12 @@ module ciswap::swap {
 
     /// The event emitted when a swap occurs
     struct AddLiquidityEvent<phantom X, phantom Y> has drop, store {
-        user: address,
+        sender_addr: address,
         amount_x: u64,
         amount_y: u64,
         liquidity: u64,
         fee_amount: u64
     }
-
     /// The event emitted when a swap occurs
     struct RemoveLiquidityEvent<phantom X, phantom Y> has drop, store {
         user: address,
@@ -53,18 +52,29 @@ module ciswap::swap {
     }
     /// The event emitted when a swap occurs
     struct SwapEvent<phantom X, phantom Y> has drop, store {
-        user: address,
-        amount_x_in: u64,
-        amount_y_in: u64,
-        amount_x_out: u64,
-        amount_y_out: u64
+        sender_addr: address,
+        amount_in: u64,
+        x_for_y: bool,
+        amount_out: u64,
+        amount_virtual_out: u64,
+        recipient_addr: address,
+    }
+
+    struct RedeemEvent<phantom X, phantom Y> has drop, store {
+        sender_addr: address,
+        amount_virtual_x: u64,
+        amount_virtual_y: u64,
+        redeemed_amount_x: u64,
+        redeemed_amount_y: u64,
+        recipient_addr: address
     }
 
     /// The event emitted when liquidity is added
     struct PairEventHolder<phantom X, phantom Y> has key {
         add_liquidity: event::EventHandle<AddLiquidityEvent<X, Y>>,
         remove_liquidity: event::EventHandle<RemoveLiquidityEvent<X, Y>>,
-        swap: event::EventHandle<SwapEvent<X, Y>>
+        swap: event::EventHandle<SwapEvent<X, Y>>,
+        redeem: event::EventHandle<RedeemEvent<X, Y>>
     }
 
     /// Stores the metadata required for the token pairs
@@ -126,6 +136,7 @@ module ciswap::swap {
         admin: address,
         pair_created: event::EventHandle<PairCreatedEvent>
     }
+    
     // errors
     const ERROR_ALREADY_INITIALIZED: u64 = 1;
     const ERROR_NOT_ADMIN: u64 = 2;
@@ -298,7 +309,8 @@ module ciswap::swap {
             PairEventHolder {
                 add_liquidity: account::new_event_handle<AddLiquidityEvent<X, Y>>(&resource_signer),
                 remove_liquidity: account::new_event_handle<RemoveLiquidityEvent<X, Y>>(&resource_signer),
-                swap: account::new_event_handle<SwapEvent<X, Y>>(&resource_signer)
+                swap: account::new_event_handle<SwapEvent<X, Y>>(&resource_signer),
+                redeem: account::new_event_handle<RedeemEvent<X, Y>>(&resource_signer)
             }
         );
 
@@ -363,47 +375,70 @@ module ciswap::swap {
     }
 
     /// Redeem the token with virtual token
-    // public entry fun redeem<X, Y>(
-    //     sender: &signer,
-    //     virtual_coin: coin::Coin<VirtualX<X, Y>>,
-    // ) acquires TokenPairMetadata, TokenPairReserve {
-    //     // get the sender
-    //     let sender_addr = signer::address_of(sender);
-    //     let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
-    //     let reserve = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
-    //     let amount = coin::value(&virtual_coin);
-    //     // get the redeemed amount
-    //     let redeemed_amount = pool_math_utils::get_redeemed_amount(amount);
-    //     // get the x for y
-    //     let x_for_y: bool = types_utils::sort_token_type<X, Y>();
-    //     assert!(coin::value(&metadata.balance_virtual_x) >= redeemed_amount, ERROR_REDEMPTION_NOT_ENOUGH);
-    //     // burn the virtual token
-    //     coin::burn<VirtualX<X, Y>>(virtual_coin, &mut metadata.burn_virtual_x_cap);
-    //     // btw, mint the virtual token to the resource account to keep the liquidity
-    //     let redeemed = coin::mint<VirtualX<X, Y>>(redeemed_amount, &mut metadata.mint_virtual_x_cap);
-    //     // merge the redeemed amount to the balance of virtual token
-    //     deposit_x<X, Y>(redeemed);
-    //     // update the reserve
-    //     if (x_for_y) {
-    //         // if x_for_y, then reserve_x is the T0 token
-    //         reserve.reserve_virtual_x = reserve.reserve_virtual_x - amount + redeemed_amount;
-    //         reserve.reserve_y = reserve.reserve_x - redeemed_amount;
-    //         // do transfer the token x to the sender
-    //         let coins_x_out = coin::zero<X>(); 
-    //         coin::merge(&mut coins_x_out, extract_x(redeemed_amount, metadata));
-    //         // transfer the token x to the sender
-    //         coin::deposit(signer::address_of(sender), coins_x_out);
-    //     } else {
-    //         // if not x_for_y, then reserve_y is the T0 token
-    //         reserve.reserve_virtual_y = reserve.reserve_virtual_y - amount + redeemed_amount;
-    //         reserve.reserve_y = reserve.reserve_x - redeemed_amount;
-    //         // do transfer the token x to the sender
-    //         let coins_y_out = coin::zero<Y>(); 
-    //         coin::merge(&mut coins_y_out, extract_y(redeemed_amount, metadata));
-    //         // transfer the token x to the sender
-    //         coin::deposit(signer::address_of(sender), coins_y_out);
-    //     }
-    // }
+    public fun redeem<X, Y>(
+        sender: &signer,
+        amount_virtual_x: u64,
+        amount_virtual_y: u64,
+        recipient_addr: address
+    ): (
+        u64, 
+        u64
+    ) acquires TokenPairMetadata, TokenPairReserve, PairEventHolder {
+        // get the sender
+        let sender_addr = signer::address_of(sender);
+        let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        let reserve = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        // get amount virtual x,y
+        let coin_virtual_x = coin::withdraw<VirtualX<X, Y>>(sender, amount_virtual_x);
+        let coin_virtual_y = coin::withdraw<VirtualX<Y, X>>(sender, amount_virtual_y);
+        // get the redeemed amount
+        let redeemed_amount_x = pool_math_utils::get_redeemed_amount(amount_virtual_x);
+        let redeemed_amount_y = pool_math_utils::get_redeemed_amount(amount_virtual_y);
+        // check if the redeemed amount is enough
+        assert!(coin::value(&metadata.balance_virtual_x) >= redeemed_amount_x, ERROR_REDEMPTION_NOT_ENOUGH);
+        assert!(coin::value(&metadata.balance_virtual_y) >= redeemed_amount_y, ERROR_REDEMPTION_NOT_ENOUGH);
+        // burn the virtual token
+        coin::burn<VirtualX<X, Y>>(coin_virtual_x, &mut metadata.burn_virtual_x_cap);
+        coin::burn<VirtualX<Y, X>>(coin_virtual_y, &mut metadata.burn_virtual_y_cap);
+        // mint the virtual token to the resource account to keep the liquidity
+        let redeemed_x = coin::mint<VirtualX<X, Y>>(redeemed_amount_x, &mut metadata.mint_virtual_x_cap);
+        let redeemed_y = coin::mint<VirtualX<Y, X>>(redeemed_amount_y, &mut metadata.mint_virtual_y_cap);
+        // // get the x for y
+        // depossit the redeemed amount to the metadata
+        coin::merge(&mut metadata.balance_virtual_x, redeemed_x);
+        coin::merge(&mut metadata.balance_virtual_y, redeemed_y);
+        // depsit the tokens into recipient account
+        let coin_x = extract_x<X, Y>(redeemed_amount_x, metadata);
+        let coin_y = extract_y<X, Y>(redeemed_amount_y, metadata);
+        coin::deposit(recipient_addr, coin_x);
+        coin::deposit(recipient_addr, coin_y);
+        // update the reserves
+        update<X, Y>(
+            reserve.reserve_x - redeemed_amount_x,
+            reserve.reserve_y - redeemed_amount_y,
+            reserve.reserve_virtual_x + redeemed_amount_x,
+            reserve.reserve_virtual_y + redeemed_amount_y,
+            reserve
+        );
+
+        // emit the redeem event
+        event::emit_event<RedeemEvent<X, Y>>(
+            &mut borrow_global_mut<PairEventHolder<X, Y>>(RESOURCE_ACCOUNT).redeem,
+            RedeemEvent {
+                sender_addr,
+                amount_virtual_x,
+                amount_virtual_y,
+                redeemed_amount_x,
+                redeemed_amount_y,
+                recipient_addr
+            }
+        );
+
+        (
+            redeemed_amount_x, 
+            redeemed_amount_y
+        )
+    }
 
     // get the token reserves
     public fun token_reserves<X, Y>(): (
@@ -574,7 +609,6 @@ module ciswap::swap {
         };
     }
 
-
     public fun add_liquidity<X, Y>(
         sender: &signer,
         amount_x: u64,
@@ -593,7 +627,7 @@ module ciswap::swap {
         event::emit_event<AddLiquidityEvent<X, Y>>(
             &mut pair_event_holder.add_liquidity,
             AddLiquidityEvent<X, Y> {
-                user: sender_addr,
+                sender_addr,
                 amount_x: a_x,
                 amount_y: a_y,
                 liquidity: lp_amount,
@@ -650,11 +684,11 @@ module ciswap::swap {
         sender: &signer,
         amount_in: u64,
         x_for_y: bool,
-        recipient: address,
+        recipient_addr: address,
         limit_amount_calculated: u64
     ): (
         u64, u64
-    ) acquires TokenPairReserve, TokenPairMetadata {
+    ) acquires TokenPairReserve, TokenPairMetadata, PairEventHolder {
         assert!(amount_in > 0, ERROR_INSUFFICIENT_INPUT_AMOUNT);
         let reserves = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
         // no need to check amount out
@@ -713,9 +747,9 @@ module ciswap::swap {
             reserves.reserve_virtual_y -= amount_virtual_out;
             reserves.reserve_x += amount_in;
 
-            // deposit the token y to the recipient
-            coin::deposit(recipient, coins_y_out);
-            coin::deposit(recipient, virtual_coins_y_out);
+            // deposit the token y to the recipient addr
+            coin::deposit(recipient_addr, coins_y_out);
+            coin::deposit(recipient_addr, virtual_coins_y_out);
         } else {
             let coin = coin::withdraw<Y>(sender, amount_in);
             // deposit the token x to the pool
@@ -750,11 +784,43 @@ module ciswap::swap {
             reserves.reserve_y += amount_in;
 
             // deposit the token y to the recipient
-            coin::deposit(recipient, coins_x_out);
-            coin::deposit(recipient, virtual_coins_x_out);
+            coin::deposit(recipient_addr, coins_x_out);
+            coin::deposit(recipient_addr, virtual_coins_x_out);
         };
 
+        // emit the swap event
+        emit_swap_event<X, Y>(
+            signer::address_of(sender),
+            amount_in,
+            x_for_y,
+            amount_out,
+            amount_virtual_out,
+            recipient_addr
+        );
+        // return the amount out and the virtual amount out
         (amount_out, amount_virtual_out)
+    }
+
+    public fun emit_swap_event<X, Y>(
+        sender_addr: address,
+        amount_in: u64,
+        x_for_y: bool,
+        amount_out: u64,
+        amount_virtual_out: u64,
+        recipient_addr: address
+    ) acquires PairEventHolder {
+        let pair_event_holder = borrow_global_mut<PairEventHolder<X, Y>>(RESOURCE_ACCOUNT);
+        event::emit_event<SwapEvent<X, Y>>(
+            &mut pair_event_holder.swap,
+            SwapEvent<X, Y> {
+                sender_addr,
+                amount_in,
+                x_for_y,
+                amount_out,
+                amount_virtual_out,
+                recipient_addr
+            }
+        );
     }
 
     #[test_only]
