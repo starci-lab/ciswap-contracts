@@ -136,7 +136,8 @@ module ciswap::swap {
     const ERROR_INSUFFICIENT_AMOUNT: u64 = 7;
     const ERROR_INVALID_AMOUNT: u64 = 8;
     const ERROR_INSUFFICIENT_LIQUIDITY: u64 = 9;
-    const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 10;
+    const ERROR_INSUFFICIENT_INPUT_AMOUNT: u64 = 10;
+    const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 11;
     
     // events
     struct PairCreatedEvent has drop, store {
@@ -348,6 +349,17 @@ module ciswap::swap {
     fun extract_y<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<Y> {
         assert!(coin::value<Y>(&metadata.balance_y) > amount, ERROR_INSUFFICIENT_AMOUNT);
         coin::extract(&mut metadata.balance_y, amount)
+    }
+
+    /// Extract `amount` from this contract
+    fun extract_virtual_x<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<VirtualX<X, Y>> {
+        assert!(coin::value<VirtualX<X, Y>>(&metadata.balance_virtual_x) > amount, ERROR_INSUFFICIENT_AMOUNT);
+        coin::extract(&mut metadata.balance_virtual_x, amount)
+    }   
+    /// Extract `amount` from this contract
+    fun extract_virtual_y<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<VirtualX<Y, X>> {
+        assert!(coin::value<VirtualX<Y, X>>(&metadata.balance_virtual_y) > amount, ERROR_INSUFFICIENT_AMOUNT);
+        coin::extract(&mut metadata.balance_virtual_y, amount)
     }
 
     /// Redeem the token with virtual token
@@ -632,51 +644,107 @@ module ciswap::swap {
         reserve.block_timestamp_last = block_timestamp;
     }
 
+    /// in ciswap, we use amount_x_in and amount_y_in to calculate the output amount
+    /// because the output depends on the token that the
     fun swap<X, Y>(
-        amount_x_out: u64,
-        amount_y_out: u64
-    ): (coin::Coin<X>, coin::Coin<Y>) acquires TokenPairReserve, TokenPairMetadata {
-        assert!(amount_x_out > 0 || amount_y_out > 0, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
-
+        amount_in: u64,
+        x_for_y: bool,
+        recipient: address,
+        limit_amount_calculated: u64
+    ): (
+        coin::Coin<X>, 
+        coin::Coin<VirtualX<X, Y>>,
+        coin::Coin<Y>, 
+        coin::Coin<VirtualX<Y, X>>
+    ) acquires TokenPairReserve, TokenPairMetadata {
+        assert!(amount_in > 0, ERROR_INSUFFICIENT_INPUT_AMOUNT);
         let reserves = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
-        assert!(amount_x_out < reserves.reserve_x && amount_y_out < reserves.reserve_y, ERROR_INSUFFICIENT_LIQUIDITY);
-
+        // no need to check amount out
+        //assert!(amount_x_out < reserves.reserve_x && amount_y_out < reserves.reserve_y, ERROR_INSUFFICIENT_LIQUIDITY);
         let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
-
+        // quoute the amount out
+        let (
+            amount_out, 
+            amount_virtual_out
+        ) = pool_math_utils::get_tokens_amount_out(
+            amount_in, 
+            x_for_y, 
+            reserves.reserve_x, 
+            reserves.reserve_y, 
+            reserves.reserve_virtual_x, 
+            reserves.reserve_virtual_y
+        );
+        // define the coins to be returned
         let coins_x_out = coin::zero<X>();
+        let virtual_coins_x_out = coin::zero<VirtualX<X, Y>>();
         let coins_y_out = coin::zero<Y>();
-        if (amount_x_out > 0) coin::merge(&mut coins_x_out, extract_x(amount_x_out, metadata));
-        if (amount_y_out > 0) coin::merge(&mut coins_y_out, extract_y(amount_y_out, metadata));
-        let (balance_x, balance_y) = token_balances<X, Y>();
+        let virtual_coins_y_out = coin::zero<VirtualX<Y, X>>();
 
-        let amount_x_in = if (balance_x > reserves.reserve_x - amount_x_out) {
-            balance_x - (reserves.reserve_x - amount_x_out)
-        } else { 0 };
-        let amount_y_in = if (balance_y > reserves.reserve_y - amount_y_out) {
-            balance_y - (reserves.reserve_y - amount_y_out)
-        } else { 0 };
-
-        assert!(amount_x_in > 0 || amount_y_in > 0, ERROR_INSUFFICIENT_INPUT_AMOUNT);
-
-        let prec = (PRECISION as u128);
-        let balance_x_adjusted = (balance_x as u128) * prec - (amount_x_in as u128) * 25u128;
-        let balance_y_adjusted = (balance_y as u128) * prec - (amount_y_in as u128) * 25u128;
-        let reserve_x_adjusted = (reserves.reserve_x as u128) * prec;
-        let reserve_y_adjusted = (reserves.reserve_y as u128) * prec;
-
-        // No need to use u256 when balance_x_adjusted * balance_y_adjusted and reserve_x_adjusted * reserve_y_adjusted are less than MAX_U128.
-        let compare_result = if(balance_x_adjusted > 0 && reserve_x_adjusted > 0 && MAX_U128 / balance_x_adjusted > balance_y_adjusted && MAX_U128 / reserve_x_adjusted > reserve_y_adjusted){
-            balance_x_adjusted * balance_y_adjusted >= reserve_x_adjusted * reserve_y_adjusted
-        }else{
-            let p: u256 = (balance_x_adjusted as u256) * (balance_y_adjusted as u256);
-            let k: u256 = (reserve_x_adjusted as u256) * (reserve_y_adjusted as u256);
-            p >= k
+        // get the actual reserves
+        let (actual_x, actual_y) = pool_math_utils::get_actual_x_y(
+            reserves.reserve_x, 
+            reserves.reserve_y, 
+            reserves.reserve_virtual_x, 
+            reserves.reserve_virtual_y
+        );
+        // check if the amount out is less than the actual reserves
+        if (x_for_y) {
+            // if x_for_y, then reserve_x is the T0 token
+            assert!(amount_out <= actual_y, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
+            // do transfer the token x to the sender
+            coin::merge(
+                &mut coins_y_out, 
+                extract_y(
+                    amount_out, 
+                    metadata
+                )
+            );
+            // do transfer the virtual token x to the sender
+            coin::merge(
+                &mut virtual_coins_y_out, 
+                extract_virtual_y(
+                    amount_virtual_out, 
+                    metadata
+                )
+            );
+            // slippage protection
+            assert!(amount_out <= limit_amount_calculated, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
+            // update reserves
+            reserves.reserve_y -= amount_out;
+            reserves.reserve_virtual_y -= amount_virtual_out;
+            reserves.reserve_x += amount_in;
+        } else {
+            // if x_for_y, then reserve_x is the T0 token
+            assert!(amount_out <= actual_x, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
+            // do transfer the token x to the sender
+            coin::merge(
+                &mut coins_x_out, 
+                extract_x(
+                    amount_out, 
+                    metadata
+                )
+            );
+            // slippage protection
+            assert!(amount_out <= limit_amount_calculated, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
+            // do transfer the virtual token x to the sender
+            coin::merge(
+                &mut virtual_coins_x_out, 
+                extract_virtual_x(
+                    amount_virtual_out, 
+                    metadata
+                )
+            );
+            // update reserves
+            reserves.reserve_x -= amount_out;
+            reserves.reserve_virtual_x -= amount_virtual_out;
+            reserves.reserve_y += amount_in;
         };
-        assert!(compare_result, ERROR_K);
-
-        update(balance_x, balance_y, reserves);
-
-        (coins_x_out, coins_y_out)
+        (
+            coins_x_out, 
+            virtual_coins_x_out, 
+            coins_y_out, 
+            virtual_coins_y_out
+        )
     }
 
     #[test_only]
