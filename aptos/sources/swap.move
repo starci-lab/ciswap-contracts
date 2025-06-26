@@ -7,10 +7,12 @@ module ciswap::swap {
     use aptos_std::event::{Self};
 
     use aptos_framework::coin::{Self};
+    use aptos_framework::aptos_coin::{AptosCoin};
     use aptos_framework::timestamp::{Self};
     use aptos_framework::account::{Self};
     use aptos_framework::resource_account::{Self};
     use aptos_framework::code::{Self};
+    use aptos_framework::table::{Self};
     use ciswap::pool_math_utils::{Self};
 
     // constants
@@ -18,10 +20,10 @@ module ciswap::swap {
     const DEFAULT_ADMIN: address = @default_admin;
     const RESOURCE_ACCOUNT: address = @ciswap;
     const DEPLOYER: address = @deployer;
-    // The minimum liquidity that must be maintained in the pool
-    const MINIMUM_LIQUIDITY: u128 = 1000;
     // The maximum length of the coin name
     const MAX_COIN_NAME_LENGTH: u64 = 32;
+    // Creation fee in apt
+    const CREATION_FEE_IN_APT: u64 = 10_000_000; // 0.1 APT
 
     // structs
 
@@ -75,7 +77,7 @@ module ciswap::swap {
     }
 
     /// Stores the metadata required for the token pairs
-    struct TokenPairMetadata<phantom X, phantom Y> has key {
+    struct TokenPairMetadata<phantom X, phantom Y> has key, store {
         /// The admin of the token pair
         creator: address,
         /// fee amount , record fee amount which is not withdrawed
@@ -115,7 +117,13 @@ module ciswap::swap {
     }
 
     /// Stores the reservation info required for the token pairs
-    struct TokenPairReserve<phantom X, phantom Y> has key {
+    struct TokenPairMetadatas<phantom X, phantom Y> has key, store {
+        // The pool id is the address of the pool that were created
+        metadatas: table::Table<address, TokenPairMetadata<X, Y>>,
+    }
+
+    /// Stores the reservation info required for the token pairs
+    struct TokenPairReserve<phantom X, phantom Y> has key, store {
         // reserve_x is the amount of T0 token in the pair
         reserve_x: u64,
         reserve_y: u64,
@@ -126,11 +134,17 @@ module ciswap::swap {
         block_timestamp_last: u64
     }
 
+    struct TokenPairReserves<phantom X, phantom Y> has key, store {
+        // The pool id is the address of the pool that were created
+        reserves: table::Table<address, TokenPairReserve<X, Y>>,
+    }
+
     // SwapInfo is the main struct of the module, it stores the information of the swap
     struct SwapInfo has key {
         signer_cap: account::SignerCapability,
         fee_to: address,
         admin: address,
+        creation_fee_in_apt: u64,
         pair_created: event::EventHandle<PairCreatedEvent>
     }
     
@@ -147,6 +161,7 @@ module ciswap::swap {
     const ERROR_INSUFFICIENT_INPUT_AMOUNT: u64 = 10;
     const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 11;
     const ERROR_PAIR_NOT_CREATED: u64 = 12;
+    const ERROR_PAIR_CREATED: u64 = 13;
     
     // events
     struct PairCreatedEvent has drop, store {
@@ -166,9 +181,11 @@ module ciswap::swap {
         // check if the resource account already exists
         let signer_cap = resource_account::retrieve_resource_account_cap(sender, DEPLOYER);
         let resource_signer = account::create_signer_with_capability(&signer_cap);
+        // send the swap info to the resource account
         move_to(&resource_signer, SwapInfo {
             signer_cap,
             fee_to: ZERO_ACCOUNT,
+            creation_fee_in_apt: CREATION_FEE_IN_APT,
             admin: DEFAULT_ADMIN,
             pair_created: account::new_event_handle<PairCreatedEvent>(&resource_signer),
         });
@@ -185,19 +202,27 @@ module ciswap::swap {
     }
 
     // Check if pair is already created
-    public fun is_pair_created<X, Y>(): bool {
-        exists<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT)
+    public fun is_pair_created<X, Y>(pool_addr: address): bool {
+        let token_pair_reserves = borrow_global<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
+        table::contains(&token_pair_reserves.reserves, pool_addr)
     }
     /// Create the specified coin pair
     public fun create_pair<X, Y>(
         sender: &signer,
+        // pool address, will process offchain and send to the resource account
+        pool_addr: address,
         amount_virtual_x: u64,
-        amount_virtual_y: u64
+        amount_virtual_y: u64,
     ) acquires SwapInfo {
-        assert!(!is_pair_created<X, Y>(), ERROR_ALREADY_INITIALIZED);
+        assert!(!is_pair_created<X, Y>(pool_addr), ERROR_ALREADY_INITIALIZED);
         let sender_addr = signer::address_of(sender);
         let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
         let resource_signer = account::create_signer_with_capability(&swap_info.signer_cap);
+
+        // transfer the creation fee in apt to the resource account
+        let creation_fee = coin::withdraw<AptosCoin>(sender, swap_info.creation_fee_in_apt);
+        // transfer the creation fee to the fee_to address
+        coin::deposit(swap_info.fee_to, creation_fee);
 
         // create the LP token
         let lp_name: string::String = string::utf8(b"CiSwap-");
@@ -265,22 +290,24 @@ module ciswap::swap {
         // transfer the initial liquidity to the resource account
         let balance_locked_lp = coin::mint<LPToken<X, Y>>(locked_liquidity, &mint_cap);
 
+        // check if the table containing the metadata exists
+        if (!exists<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT)) {
+            // create the table for the metadata
+            move_to<TokenPairMetadatas<X, Y>>(
+                &resource_signer,
+                TokenPairMetadatas {
+                    metadatas: table::new<address, TokenPairMetadata<X, Y>>()
+                }
+            );
+        };
+        // retrive the table for the metadata
+        let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
+        // retrieve the last index of the table
         // move the LP token to the resource account
-        move_to<TokenPairReserve<X, Y>>(
-            &resource_signer,
-            TokenPairReserve {
-                reserve_x: 0,
-                reserve_y: 0,
-                reserve_virtual_x: amount_virtual_x,
-                reserve_virtual_y: amount_virtual_y,
-                block_timestamp_last: 0
-            }
-        );  
-        
-        // move the virtual token to the resource account
-        move_to<TokenPairMetadata<X, Y>>(
-            &resource_signer,
-            TokenPairMetadata {
+        table::add(
+            &mut metadatas.metadatas,
+            pool_addr, // the pool id is the address of the pool
+            TokenPairMetadata<X, Y> {
                 creator: sender_addr,
                 fee_amount: coin::zero<LPToken<X, Y>>(),
                 k_sqrt_last: locked_liquidity,
@@ -298,6 +325,29 @@ module ciswap::swap {
                 mint_virtual_y_cap,
                 burn_virtual_y_cap,
                 freeze_virtual_y_cap
+            }
+        );  
+        
+        // check if the table containing the reserves exists
+        if (!exists<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT)) {
+            // create the table for the reserves
+            move_to<TokenPairReserves<X, Y>>(
+                &resource_signer,
+                TokenPairReserves {
+                    reserves: table::new<address, TokenPairReserve<X, Y>>()
+                }
+            );
+        };
+
+        table::add(
+            &mut borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT).reserves,
+            pool_addr, // the pool id is 0 for the first pool
+            TokenPairReserve {
+                reserve_x: 0,
+                reserve_y: 0,
+                reserve_virtual_x: amount_virtual_x,
+                reserve_virtual_y: amount_virtual_y,
+                block_timestamp_last: timestamp::now_seconds()
             }
         );
 
@@ -331,9 +381,8 @@ module ciswap::swap {
     }
     
     /// The amount of balance currently in pools of the liquidity pair
-    public fun token_balances<X, Y>(): (u64, u64, u64, u64) acquires TokenPairMetadata {
-        let meta =
-            borrow_global<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    public fun token_balances<X, Y>(pool_addr: address): (u64, u64, u64, u64) acquires TokenPairMetadata {
+        let meta = get_metadata<X, Y>(pool_addr);
         (
             coin::value(&meta.balance_x),
             coin::value(&meta.balance_y),
@@ -342,10 +391,39 @@ module ciswap::swap {
         )
     }
 
+    // retrieve the metadata by X,Y and pool address
+    public fun get_metadata<X, Y>(pool_addr: address): &TokenPairMetadata<X, Y> 
+    acquires TokenPairMetadatas {
+        let metadatas 
+        = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
+        table::borrow(&mut metadatas.metadatas, pool_addr)  
+    }
+
+    public fun get_metadata_mut<X, Y>(pool_addr: address): &mut TokenPairMetadata<X, Y> 
+    acquires TokenPairMetadatas {
+        let metadatas 
+        = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
+        table::borrow_mut(&mut metadatas.metadatas, pool_addr)  
+    }
+
+    // retrieve the reserve by X,Y and pool address
+    public fun get_reserve<X, Y>(pool_addr: address): &TokenPairReserve<X, Y>
+    acquires TokenPairReserves {
+        let reserves 
+        = borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
+        table::borrow(&mut reserves.reserves, pool_addr)  
+    }
+
+    public fun get_reserve_mut<X, Y>(pool_addr: address): &mut TokenPairReserve<X, Y>
+    acquires TokenPairReserves {
+        let reserves 
+        = borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
+        table::borrow_mut(&mut reserves.reserves, pool_addr)  
+    }
+
     /// Get locked liquidity in the pool
-    public fun balance_locked_lp<X, Y>(): u64 acquires TokenPairMetadata {
-        let meta =
-            borrow_global<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    public fun balance_locked_lp<X, Y>(pool_addr: address): u64 acquires TokenPairMetadata {
+        let meta = get_metadata<X, Y>(pool_addr);
         coin::value(&meta.balance_locked_lp)
     }
 
@@ -375,6 +453,7 @@ module ciswap::swap {
     /// Redeem the token with virtual token
     public fun redeem<X, Y>(
         sender: &signer,
+        pool_addr: address,
         amount_virtual_x: u64,
         amount_virtual_y: u64,
         recipient_addr: address
@@ -384,8 +463,8 @@ module ciswap::swap {
     ) acquires TokenPairMetadata, TokenPairReserve, PairEventHolder {
         // get the sender
         let sender_addr = signer::address_of(sender);
-        let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
-        let reserve = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata_mut<X, Y>(pool_addr);
+        let reserve = get_reserve_mut<X, Y>(pool_addr);
         // get amount virtual x,y
         let coin_virtual_x = coin::withdraw<VirtualX<X, Y>>(sender, amount_virtual_x);
         let coin_virtual_y = coin::withdraw<VirtualX<Y, X>>(sender, amount_virtual_y);
@@ -439,13 +518,15 @@ module ciswap::swap {
     }
 
     // get the token reserves
-    public fun token_reserves<X, Y>(): (
+    public fun token_reserves<X, Y>(
+        pool_addr: address
+    ): (
         u64, 
         u64, 
         u64,
         u64
     ) acquires TokenPairReserve {
-        let reserve = borrow_global<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        let reserve = get_reserve<X, Y>(pool_addr);
         (
             reserve.reserve_x, 
             reserve.reserve_y, 
@@ -454,15 +535,13 @@ module ciswap::swap {
         )
     }   
 
-    fun deposit_x<X, Y>(amount: coin::Coin<X>) acquires TokenPairMetadata {
-        let metadata =
-            borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    fun deposit_x<X, Y>(pool_addr: address, amount: coin::Coin<X>) acquires TokenPairMetadata {
+        let metadata = get_metadata_mut<X, Y>(pool_addr);
         coin::merge(&mut metadata.balance_x, amount);
     }
 
-    fun deposit_y<X, Y>(amount: coin::Coin<Y>) acquires TokenPairMetadata {
-        let metadata =
-            borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    fun deposit_y<X, Y>(pool_addr: address, amount: coin::Coin<Y>) acquires TokenPairMetadata {
+        let metadata = get_metadata_mut<X, Y>(pool_addr);
         coin::merge(&mut metadata.balance_y, amount);
     }
 
@@ -488,19 +567,19 @@ module ciswap::swap {
         )
     }
 
-    public fun k_sqrt<X, Y>() : u64 acquires TokenPairMetadata {
-        let metadata = borrow_global<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    public fun k_sqrt<X, Y>(pool_addr: address) : u64 acquires TokenPairMetadata {
+        let metadata = get_metadata<X, Y>(pool_addr);
         metadata.k_sqrt_last
     }
 
-    public fun fee_amount<X, Y>(): u64 acquires TokenPairMetadata {
-        let metadata = borrow_global<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    public fun fee_amount<X, Y>(pool_addr: address): u64 acquires TokenPairMetadata {
+        let metadata = get_metadata<X, Y>(pool_addr);
         coin::value(&metadata.fee_amount)
     }
 
     // mint LP tokens for the liquidity provider
-    fun mint<X, Y>(): (coin::Coin<LPToken<X, Y>>, u64) acquires TokenPairReserve, TokenPairMetadata {
-        let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+    fun mint<X, Y>(pool_addr: address): (coin::Coin<LPToken<X, Y>>, u64) acquires TokenPairReserve, TokenPairMetadata {
+        let metadata = get_metadata_mut<X, Y>(pool_addr);
         let (
             balance_x, 
             balance_y, 
@@ -550,6 +629,7 @@ module ciswap::swap {
     }
 
     fun add_liquidity_direct<X, Y>(
+        pool_addr: address,
         x: coin::Coin<X>,
         y: coin::Coin<Y>,
     ): (
@@ -566,7 +646,7 @@ module ciswap::swap {
             reserve_y, 
             reserve_virtual_x, 
             reserve_virtual_y
-        ) = token_reserves<X, Y>();
+        ) = token_reserves<X, Y>(pool_addr);
         let (a_x, a_y) = {
             let amount_y_optimal = pool_math_utils::quote(
                 amount_x, 
@@ -595,9 +675,9 @@ module ciswap::swap {
 
         let left_x = coin::extract(&mut x, amount_x - a_x);
         let left_y = coin::extract(&mut y, amount_y - a_y);
-        deposit_x<X, Y>(x);
-        deposit_y<X, Y>(y);
-        let (lp, fee_amount) = mint<X, Y>();
+        deposit_x<X, Y>(pool_addr, x);
+        deposit_y<X, Y>(pool_addr, y);
+        let (lp, fee_amount) = mint<X, Y>(pool_addr);
         (a_x, a_y, lp, fee_amount, left_x, left_y)
     }
 
@@ -609,10 +689,15 @@ module ciswap::swap {
 
     public fun add_liquidity<X, Y>(
         sender: &signer,
+        pool_addr: address,
         amount_x: u64,
         amount_y: u64
     ): (u64, u64, u64) acquires TokenPairReserve, TokenPairMetadata, PairEventHolder {
-        let (a_x, a_y, coin_lp, fee_amount, coin_left_x, coin_left_y) = add_liquidity_direct(coin::withdraw<X>(sender, amount_x), coin::withdraw<Y>(sender, amount_y));
+        let (a_x, a_y, coin_lp, fee_amount, coin_left_x, coin_left_y) = add_liquidity_direct(
+            pool_addr, 
+            coin::withdraw<X>(sender, amount_x), 
+            coin::withdraw<Y>(sender, amount_y)
+        );
         let sender_addr = signer::address_of(sender);
         let lp_amount = coin::value(&coin_lp);
         assert!(lp_amount > 0, ERROR_INSUFFICIENT_LIQUIDITY);
@@ -680,6 +765,7 @@ module ciswap::swap {
     /// because the output depends on the token that the
     public fun swap<X, Y>(
         sender: &signer,
+        pool_addr: address,
         amount_in: u64,
         x_for_y: bool,
         recipient_addr: address,
@@ -688,10 +774,10 @@ module ciswap::swap {
         u64, u64
     ) acquires TokenPairReserve, TokenPairMetadata, PairEventHolder {
         assert!(amount_in > 0, ERROR_INSUFFICIENT_INPUT_AMOUNT);
-        let reserves = borrow_global_mut<TokenPairReserve<X, Y>>(RESOURCE_ACCOUNT);
+        let reserves =  get_reserve_mut<X, Y>(pool_addr);
         // no need to check amount out
         //assert!(amount_x_out < reserves.reserve_x && amount_y_out < reserves.reserve_y, ERROR_INSUFFICIENT_LIQUIDITY);
-        let metadata = borrow_global_mut<TokenPairMetadata<X, Y>>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata_mut<X, Y>(pool_addr);
         // quoute the amount out
         let (
             amount_out, 
@@ -822,6 +908,7 @@ module ciswap::swap {
     }
 
     public fun get_amount_out<X, Y>(
+        pool_addr: address,
         amount_in: u64,
         x_for_y: bool
     ): (u64, u64) acquires TokenPairReserve {
@@ -830,7 +917,7 @@ module ciswap::swap {
             reserve_y, 
             reserve_virtual_x, 
             reserve_virtual_y
-        ) = token_reserves<X, Y>();
+        ) = token_reserves<X, Y>(pool_addr);
         pool_math_utils::get_tokens_amount_out(
             amount_in, 
             x_for_y, 
@@ -842,6 +929,7 @@ module ciswap::swap {
     }
 
     public fun get_amount_in<X, Y>(
+        pool_addr: address,
         amount_out: u64,
         x_for_y: bool
     ): ( u64 ) acquires TokenPairReserve {
@@ -850,7 +938,7 @@ module ciswap::swap {
             reserve_y, 
             reserve_virtual_x, 
             reserve_virtual_y
-        ) = token_reserves<X, Y>();
+        ) = token_reserves<X, Y>(pool_addr);
         pool_math_utils::get_amount_in(
             amount_out,
             x_for_y,
@@ -861,10 +949,17 @@ module ciswap::swap {
         )
     }
 
-    fun is_pair_created_internal<X, Y>(){
+    public fun is_pair_created_internal<X, Y>(pool_addr: address) {
         assert!(
-            is_pair_created<X, Y>() || is_pair_created<Y, X>(), 
+            is_pair_created<X, Y>(pool_addr) || is_pair_created<Y, X>(pool_addr), 
             ERROR_PAIR_NOT_CREATED
+        );
+    }
+
+    public fun is_pair_not_create_internal<X, Y>(pool_addr: address) {
+        assert!(
+            !is_pair_created<X, Y>(pool_addr) && !is_pair_created<Y, X>(pool_addr), 
+            ERROR_PAIR_CREATED
         );
     }
 
