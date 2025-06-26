@@ -36,6 +36,7 @@ module ciswap::swap {
     /// The event emitted when a swap occurs
     struct AddLiquidityEvent<phantom X, phantom Y> has drop, store {
         sender_addr: address,
+        pool_addr: address,
         amount_x: u64,
         amount_y: u64,
         liquidity: u64,
@@ -52,6 +53,7 @@ module ciswap::swap {
     /// The event emitted when a swap occurs
     struct SwapEvent<phantom X, phantom Y> has drop, store {
         sender_addr: address,
+        pool_addr: address,
         amount_in: u64,
         x_for_y: bool,
         amount_out: u64,
@@ -61,6 +63,7 @@ module ciswap::swap {
 
     struct RedeemEvent<phantom X, phantom Y> has drop, store {
         sender_addr: address,
+        pool_addr: address,
         amount_virtual_x: u64,
         amount_virtual_y: u64,
         redeemed_amount_x: u64,
@@ -165,7 +168,8 @@ module ciswap::swap {
     
     // events
     struct PairCreatedEvent has drop, store {
-        user: address,
+        sender_addr: address,
+        pool_addr: address,
         token_x: string::String,
         token_y: string::String,
         // virtual token x
@@ -369,7 +373,8 @@ module ciswap::swap {
         event::emit_event<PairCreatedEvent>(
             &mut swap_info.pair_created,
             PairCreatedEvent {
-                user: sender_addr,
+                sender_addr,
+                pool_addr,
                 token_x,
                 token_y,
                 virtual_token_x: virtual_token_x_name,
@@ -507,6 +512,7 @@ module ciswap::swap {
             &mut borrow_global_mut<PairEventHolder<X, Y>>(RESOURCE_ACCOUNT).redeem,
             RedeemEvent {
                 sender_addr,
+                pool_addr,
                 amount_virtual_x,
                 amount_virtual_y,
                 redeemed_amount_x,
@@ -722,6 +728,7 @@ module ciswap::swap {
             &mut pair_event_holder.add_liquidity,
             AddLiquidityEvent<X, Y> {
                 sender_addr,
+                pool_addr,
                 amount_x: a_x,
                 amount_y: a_y,
                 liquidity: lp_amount,
@@ -888,6 +895,7 @@ module ciswap::swap {
         // emit the swap event
         emit_swap_event<X, Y>(
             signer::address_of(sender),
+            pool_addr,
             amount_in,
             x_for_y,
             amount_out,
@@ -900,6 +908,7 @@ module ciswap::swap {
 
     public fun emit_swap_event<X, Y>(
         sender_addr: address,
+        pool_addr: address,
         amount_in: u64,
         x_for_y: bool,
         amount_out: u64,
@@ -911,6 +920,7 @@ module ciswap::swap {
             &mut pair_event_holder.swap,
             SwapEvent<X, Y> {
                 sender_addr,
+                pool_addr,
                 amount_in,
                 x_for_y,
                 amount_out,
