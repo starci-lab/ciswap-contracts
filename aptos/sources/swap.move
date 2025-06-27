@@ -1124,6 +1124,12 @@ module ciswap::swap {
         borrow_global<SwapInfo>(RESOURCE_ACCOUNT).creation_fee_in_apt
     }
 
+    /// Get pool creation fee in APT
+    #[view]
+    public fun get_pool_creation_fee_apt(): u64 acquires SwapInfo {
+        coin::value(&borrow_global<SwapInfo>(RESOURCE_ACCOUNT).pool_creation_fee_apt)
+    }
+
     /// Test-only function to initialize the module (for unit tests)
     #[test_only]
     public fun initialize(sender: &signer) {
