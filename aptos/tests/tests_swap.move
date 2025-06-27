@@ -18,13 +18,15 @@ module ciswap::tests_swap {
         TestAPT
     };
 
-     // Import the swap module
+    // Error codes for test assertions
     const ERROR_TOKEN_A_NOT_ZERO: u64 = 0;
     const ERROR_TOKEN_B_NOT_ZERO: u64 = 1;
     const ERROR_VIRTUAL_TOKEN_A_MISMATCH: u64 = 2;
     const ERROR_VIRTUAL_TOKEN_B_MISMATCH: u64 = 3;
     const ERROR_LOCKED_LP_TOKEN_BALANCE_MISMATCH: u64 = 4;
+    const ERROR_SHOULD_FAIL: u64 = 100;
 
+    /// Sets up the test environment with genesis and all required accounts/resources
     public fun setup_test_with_genesis(
         deployer: &signer, 
         admin: &signer, 
@@ -42,6 +44,7 @@ module ciswap::tests_swap {
         );
     }
 
+    /// Sets up accounts and initializes the swap module
     public fun setup_test(
         deployer: &signer, 
         admin: &signer, 
@@ -52,7 +55,6 @@ module ciswap::tests_swap {
         account::create_account_for_test(signer::address_of(deployer));
         account::create_account_for_test(signer::address_of(admin));
         account::create_account_for_test(signer::address_of(treasury));
-
         resource_account::create_resource_account(
             deployer,
             b"ciswap", 
@@ -63,6 +65,7 @@ module ciswap::tests_swap {
         coin::create_coin_conversion_map(aptos_framework);
     }
 
+    /// Test: Basic swap and check balances after the swap
     #[test(deployer = @deployer, admin = @default_admin, resource_account = @ciswap, treasury = @0x23456, alice = @0x12346, aptos_framework = @0x1)]
     fun test_swap(
         deployer: &signer,
@@ -116,5 +119,116 @@ module ciswap::tests_swap {
         assert!(alice_starci_balance == 100 * math64::pow(10, 8) - 100 - amount_in, 0);
         assert!(alice_busd_balance == 100 * math64::pow(10, 8) - 200 + amount_out, 0);
         assert!(virtual_balance == amount_virtual_out, 0);
-    }   
+    }
+
+    /// Test: Swap with slippage protection (should fail if output is too low)
+    #[test(deployer = @deployer, admin = @default_admin, resource_account = @ciswap, treasury = @0x23456, alice = @0x12346, aptos_framework = @0x1)]
+    fun test_swap_with_slippage_should_fail(
+        deployer: &signer,
+        admin: &signer,
+        resource_account: &signer,
+        treasury: &signer,
+        alice: &signer,
+        aptos_framework: &signer,
+    ) {
+        let pool_addr = @0x23456;
+        account::create_account_for_test(signer::address_of(alice));
+        setup_test_with_genesis(deployer, admin, treasury, resource_account, aptos_framework);
+        let coin_owner = test_coins::init_coins();
+        test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        swap::create_pair<TestSTARCI, TestBUSD>(
+            alice,
+            pool_addr,
+            100 * math64::pow(10, 8),
+            200 * math64::pow(10, 8)
+        );
+        swap::add_liquidity<TestSTARCI, TestBUSD>(
+            alice,
+            pool_addr,
+            100,
+            200
+        );
+        let amount_in = 10 * math64::pow(10, 8);
+        let alice_address = signer::address_of(alice);
+        // Set a very low limit_amount_calculated to force slippage failure
+        let failed = swap::swap<TestSTARCI, TestBUSD>(
+            alice,
+            pool_addr,
+            amount_in,
+            true,
+            alice_address,
+            1 // limit is too low, should fail
+        );
+        // If we reach here, the test should fail
+        assert!(false, ERROR_SHOULD_FAIL);
+    }
+
+    /// Test: Swap with insufficient liquidity (should fail)
+    #[test(deployer = @deployer, admin = @default_admin, resource_account = @ciswap, treasury = @0x23456, alice = @0x12346, aptos_framework = @0x1)]
+    fun test_swap_insufficient_liquidity_should_fail(
+        deployer: &signer,
+        admin: &signer,
+        resource_account: &signer,
+        treasury: &signer,
+        alice: &signer,
+        aptos_framework: &signer,
+    ) {
+        let pool_addr = @0x23456;
+        account::create_account_for_test(signer::address_of(alice));
+        setup_test_with_genesis(deployer, admin, treasury, resource_account, aptos_framework);
+        let coin_owner = test_coins::init_coins();
+        test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        swap::create_pair<TestSTARCI, TestBUSD>(
+            alice,
+            pool_addr,
+            100 * math64::pow(10, 8),
+            200 * math64::pow(10, 8)
+        );
+        // No liquidity added
+        let amount_in = 10 * math64::pow(10, 8);
+        let alice_address = signer::address_of(alice);
+        let failed = swap::swap<TestSTARCI, TestBUSD>(
+            alice,
+            pool_addr,
+            amount_in,
+            true,
+            alice_address,
+            0
+        );
+        // If we reach here, the test should fail
+        assert!(false, ERROR_SHOULD_FAIL);
+    }
+
+    /// Test: Swap on a non-existent pool (should fail)
+    #[test(deployer = @deployer, admin = @default_admin, resource_account = @ciswap, treasury = @0x23456, alice = @0x12346, aptos_framework = @0x1)]
+    fun test_swap_non_existent_pool_should_fail(
+        deployer: &signer,
+        admin: &signer,
+        resource_account: &signer,
+        treasury: &signer,
+        alice: &signer,
+        aptos_framework: &signer,
+    ) {
+        let pool_addr = @0x99999;
+        account::create_account_for_test(signer::address_of(alice));
+        setup_test_with_genesis(deployer, admin, treasury, resource_account, aptos_framework);
+        let coin_owner = test_coins::init_coins();
+        test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        // No pool created at pool_addr
+        let amount_in = 10 * math64::pow(10, 8);
+        let alice_address = signer::address_of(alice);
+        let failed = swap::swap<TestSTARCI, TestBUSD>(
+            alice,
+            pool_addr,
+            amount_in,
+            true,
+            alice_address,
+            0
+        );
+        // If we reach here, the test should fail
+        assert!(false, ERROR_SHOULD_FAIL);
+    }
 }
