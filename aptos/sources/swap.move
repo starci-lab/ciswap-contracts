@@ -529,7 +529,6 @@ module ciswap::swap {
                 recipient_addr
             }
         );
-
         (
             redeemed_amount_x, 
             redeemed_amount_y
