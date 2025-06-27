@@ -6,7 +6,6 @@ module ciswap::tests_add_liquidity {
         TestBUSD, 
         TestUSDC, 
         TestBNB, 
-        TestAPT
     };
     use aptos_framework::genesis::{Self};
     use aptos_framework::account::{Self};
@@ -82,6 +81,7 @@ module ciswap::tests_add_liquidity {
         let coin_owner = test_coins::init_coins();
         test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
         test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        test_coins::register_and_mint_aptos_coin(aptos_framework, alice, 100 * math64::pow(10, 8));
         // Create a pool address
         let pool_addr = @0x23456;
         // Create a pair

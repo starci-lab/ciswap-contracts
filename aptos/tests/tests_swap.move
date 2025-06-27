@@ -15,7 +15,6 @@ module ciswap::tests_swap {
         TestBUSD, 
         TestUSDC, 
         TestBNB, 
-        TestAPT
     };
 
     // Error codes for test assertions
@@ -83,7 +82,9 @@ module ciswap::tests_swap {
         let coin_owner = test_coins::init_coins();
         test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
         test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
-    
+        // Mint AptosCoin for Alice (for pool creation fee)
+        let aptos_balance: u64 = 100 * math64::pow(10, 8);
+        test_coins::register_and_mint_aptos_coin(aptos_framework, alice, aptos_balance);
         // Create a pair
         swap::create_pair<TestSTARCI, TestBUSD>(
             alice,
@@ -137,6 +138,9 @@ module ciswap::tests_swap {
         let coin_owner = test_coins::init_coins();
         test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
         test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
+        //mint AptosCoin for Alice (for pool creation fee)
+        let aptos_balance: u64 = 100 * math64::pow(10, 8);
+        test_coins::register_and_mint_aptos_coin(aptos_framework, alice, aptos_balance);
         swap::create_pair<TestSTARCI, TestBUSD>(
             alice,
             pool_addr,
@@ -152,7 +156,7 @@ module ciswap::tests_swap {
         let amount_in = 10 * math64::pow(10, 8);
         let alice_address = signer::address_of(alice);
         // Set a very low limit_amount_calculated to force slippage failure
-        let failed = swap::swap<TestSTARCI, TestBUSD>(
+        swap::swap<TestSTARCI, TestBUSD>(
             alice,
             pool_addr,
             amount_in,
@@ -160,12 +164,11 @@ module ciswap::tests_swap {
             alice_address,
             1 // limit is too low, should fail
         );
-        // If we reach here, the test should fail
-        assert!(false, ERROR_SHOULD_FAIL);
     }
 
     /// Test: Swap with insufficient liquidity (should fail)
     #[test(deployer = @deployer, admin = @default_admin, resource_account = @ciswap, treasury = @0x23456, alice = @0x12346, aptos_framework = @0x1)]
+    #[expected_failure]
     fun test_swap_insufficient_liquidity_should_fail(
         deployer: &signer,
         admin: &signer,
@@ -189,7 +192,7 @@ module ciswap::tests_swap {
         // No liquidity added
         let amount_in = 10 * math64::pow(10, 8);
         let alice_address = signer::address_of(alice);
-        let failed = swap::swap<TestSTARCI, TestBUSD>(
+        swap::swap<TestSTARCI, TestBUSD>(
             alice,
             pool_addr,
             amount_in,
@@ -197,12 +200,11 @@ module ciswap::tests_swap {
             alice_address,
             0
         );
-        // If we reach here, the test should fail
-        assert!(false, ERROR_SHOULD_FAIL);
     }
 
     /// Test: Swap on a non-existent pool (should fail)
     #[test(deployer = @deployer, admin = @default_admin, resource_account = @ciswap, treasury = @0x23456, alice = @0x12346, aptos_framework = @0x1)]
+    #[expected_failure]
     fun test_swap_non_existent_pool_should_fail(
         deployer: &signer,
         admin: &signer,
@@ -220,7 +222,7 @@ module ciswap::tests_swap {
         // No pool created at pool_addr
         let amount_in = 10 * math64::pow(10, 8);
         let alice_address = signer::address_of(alice);
-        let failed = swap::swap<TestSTARCI, TestBUSD>(
+        swap::swap<TestSTARCI, TestBUSD>(
             alice,
             pool_addr,
             amount_in,

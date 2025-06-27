@@ -202,14 +202,14 @@ module ciswap::swap {
     /// # Fields
     /// - `signer_cap`: Capability to sign as resource account
     /// - `fee_to`: Address to receive protocol fees
-    /// - `fee_amount_apt`: Accumulated fees in APT
+    /// - `pool_creation_fee_apt`: Accumulated fees in APT
     /// - `admin`: Admin address
     /// - `creation_fee_in_apt`: Fee for creating a new pair
     /// - `pair_created`: Event handle for pair creation
     struct SwapInfo has key {
         signer_cap: account::SignerCapability, // Capability to sign as resource account
         fee_to: address, // Address to receive protocol fees
-        fee_amount_apt: coin::Coin<AptosCoin>, // Accumulated fees in APT
+        pool_creation_fee_apt: coin::Coin<AptosCoin>, // Accumulated fees in APT
         admin: address, // Admin address
         creation_fee_in_apt: u64, // Fee for creating a new pair
         pair_created: event::EventHandle<PairCreatedEvent> // Event handle for pair creation
@@ -279,7 +279,7 @@ module ciswap::swap {
         move_to(&resource_signer, SwapInfo {
             signer_cap,
             fee_to: DEFAULT_FEE_TO,
-            fee_amount_apt: coin::zero<AptosCoin>(),
+            pool_creation_fee_apt: coin::zero<AptosCoin>(),
             creation_fee_in_apt: CREATION_FEE_IN_APT,
             admin: DEFAULT_ADMIN,
             pair_created: account::new_event_handle<PairCreatedEvent>(&resource_signer),
@@ -356,7 +356,7 @@ module ciswap::swap {
         // --------------------------------------------------------------------
         // 2. Transfer the creation fee in APT to the resource account
         let creation_fee = coin::withdraw<AptosCoin>(sender, swap_info.creation_fee_in_apt);
-        coin::merge(&mut swap_info.fee_amount_apt, creation_fee);
+        coin::merge(&mut swap_info.pool_creation_fee_apt, creation_fee);
 
         // --------------------------------------------------------------------
         // 3. Create the LP token for this pair
@@ -1116,6 +1116,12 @@ module ciswap::swap {
             !is_pair_created<X, Y>(pool_addr) && !is_pair_created<Y, X>(pool_addr), 
             ERROR_PAIR_CREATED
         );
+    }
+
+    /// Get swap information, including admin and fee recipient
+    #[view]
+    public fun get_creation_fee_in_apt(): u64 acquires SwapInfo {
+        borrow_global<SwapInfo>(RESOURCE_ACCOUNT).creation_fee_in_apt
     }
 
     /// Test-only function to initialize the module (for unit tests)
