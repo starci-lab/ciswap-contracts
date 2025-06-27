@@ -15,7 +15,9 @@ module ciswap::swap {
     use aptos_framework::table::{Self};
     use ciswap::pool_math_utils::{Self};
 
-    // constants
+    // ------------------------------------------------------------------------
+    // Constants
+    // ------------------------------------------------------------------------
     // Addresses and configuration constants for the module
     const ZERO_ACCOUNT: address = @zero; // Placeholder zero address
     const DEFAULT_ADMIN: address = @default_admin; // Default admin address
@@ -25,15 +27,33 @@ module ciswap::swap {
     const MAX_COIN_NAME_LENGTH: u64 = 32; // The maximum length of the coin name
     const CREATION_FEE_IN_APT: u64 = 10_000_000; // 0.1 APT, fee for creating a new pair
 
-    // structs
+    // ------------------------------------------------------------------------
+    // Structs
+    // ------------------------------------------------------------------------
 
-    /// The LP Token type, representing liquidity provider tokens for a pair
+    /// The LP Token type, representing liquidity provider tokens for a pair.
+    ///
+    /// # Type Parameters
+    /// - `X`: The first token type in the pair (phantom, not stored directly)
+    /// - `Y`: The second token type in the pair (phantom, not stored directly)
     struct LPToken<phantom X, phantom Y> has key {}
 
-    /// Virtual token for the token X in a pair (used for virtual liquidity)
+    /// Virtual token for the token X in a pair (used for virtual liquidity).
+    ///
+    /// # Type Parameters
+    /// - `X`: The token this virtual token represents (phantom)
+    /// - `Y`: The other token in the pair (phantom)
     struct VirtualX<phantom X, phantom Y> has key {}
 
-    /// The event emitted when liquidity is added to a pool
+    /// The event emitted when liquidity is added to a pool.
+    ///
+    /// # Fields
+    /// - `sender_addr`: Address of the liquidity provider
+    /// - `pool_addr`: Address of the pool
+    /// - `amount_x`: Amount of token X added
+    /// - `amount_y`: Amount of token Y added
+    /// - `liquidity`: Amount of LP tokens minted
+    /// - `fee_amount`: Fee amount collected
     struct AddLiquidityEvent<phantom X, phantom Y> has drop, store {
         sender_addr: address, // Address of the liquidity provider
         pool_addr: address,   // Address of the pool
@@ -42,7 +62,14 @@ module ciswap::swap {
         liquidity: u64,       // Amount of LP tokens minted
         fee_amount: u64       // Fee amount collected
     }
-    /// The event emitted when liquidity is removed from a pool
+    /// The event emitted when liquidity is removed from a pool.
+    ///
+    /// # Fields
+    /// - `user`: Address of the user removing liquidity
+    /// - `liquidity`: Amount of LP tokens burned
+    /// - `amount_x`: Amount of token X withdrawn
+    /// - `amount_y`: Amount of token Y withdrawn
+    /// - `fee_amount`: Fee amount collected
     struct RemoveLiquidityEvent<phantom X, phantom Y> has drop, store {
         user: address,        // Address of the user removing liquidity
         liquidity: u64,       // Amount of LP tokens burned
@@ -50,7 +77,16 @@ module ciswap::swap {
         amount_y: u64,        // Amount of token Y withdrawn
         fee_amount: u64       // Fee amount collected
     }
-    /// The event emitted when a swap occurs
+    /// The event emitted when a swap occurs.
+    ///
+    /// # Fields
+    /// - `sender_addr`: Address of the swap initiator
+    /// - `pool_addr`: Address of the pool
+    /// - `amount_in`: Amount of input token
+    /// - `x_for_y`: Direction of swap (true if X for Y)
+    /// - `amount_out`: Amount of output token
+    /// - `amount_virtual_out`: Amount of virtual output token
+    /// - `recipient_addr`: Address receiving the output
     struct SwapEvent<phantom X, phantom Y> has drop, store {
         sender_addr: address,     // Address of the swap initiator
         pool_addr: address,       // Address of the pool
@@ -61,7 +97,16 @@ module ciswap::swap {
         recipient_addr: address,  // Address receiving the output
     }
 
-    /// The event emitted when virtual tokens are redeemed for real tokens
+    /// The event emitted when virtual tokens are redeemed for real tokens.
+    ///
+    /// # Fields
+    /// - `sender_addr`: Address of the redeemer
+    /// - `pool_addr`: Address of the pool
+    /// - `amount_virtual_x`: Amount of virtual X redeemed
+    /// - `amount_virtual_y`: Amount of virtual Y redeemed
+    /// - `redeemed_amount_x`: Amount of real X received
+    /// - `redeemed_amount_y`: Amount of real Y received
+    /// - `recipient_addr`: Address receiving the real tokens
     struct RedeemEvent<phantom X, phantom Y> has drop, store {
         sender_addr: address,         // Address of the redeemer
         pool_addr: address,           // Address of the pool
@@ -72,7 +117,13 @@ module ciswap::swap {
         recipient_addr: address       // Address receiving the real tokens
     }
 
-    /// Holds all event handles for a pair (add/remove liquidity, swap, redeem)
+    /// Holds all event handles for a pair (add/remove liquidity, swap, redeem).
+    ///
+    /// # Fields
+    /// - `add_liquidity`: Event handle for AddLiquidityEvent
+    /// - `remove_liquidity`: Event handle for RemoveLiquidityEvent
+    /// - `swap`: Event handle for SwapEvent
+    /// - `redeem`: Event handle for RedeemEvent
     struct PairEventHolder<phantom X, phantom Y> has key {
         add_liquidity: event::EventHandle<AddLiquidityEvent<X, Y>>,
         remove_liquidity: event::EventHandle<RemoveLiquidityEvent<X, Y>>,
@@ -80,47 +131,81 @@ module ciswap::swap {
         redeem: event::EventHandle<RedeemEvent<X, Y>>
     }
 
-    /// Stores metadata for a token pair, including balances and capabilities
+    /// Stores metadata for a token pair, including balances and capabilities.
+    ///
+    /// # Fields
+    /// - `creator`: Creator/admin of the pair
+    /// - `fee_amount`: Accumulated fees in LP tokens
+    /// - `k_sqrt_last`: Last recorded sqrt(K) for fee calculation
+    /// - `balance_x`: Pool balance of token X
+    /// - `balance_y`: Pool balance of token Y
+    /// - `balance_virtual_x`: Virtual X balance
+    /// - `balance_virtual_y`: Virtual Y balance
+    /// - `balance_locked_lp`: Locked LP tokens (minimum liquidity)
+    /// - `mint_cap`, `burn_cap`, `freeze_cap`: Capabilities for LP tokens
+    /// - `mint_virtual_x_cap`, `burn_virtual_x_cap`, `freeze_virtual_x_cap`: Capabilities for virtual X
+    /// - `mint_virtual_y_cap`, `burn_virtual_y_cap`, `freeze_virtual_y_cap`: Capabilities for virtual Y
     struct TokenPairMetadata<phantom X, phantom Y> has key, store {
-        creator: address, // Creator/admin of the pair
-        fee_amount: coin::Coin<LPToken<X, Y>>, // Accumulated fees in LP tokens
-        k_sqrt_last: u64, // Last recorded sqrt(K) for fee calculation
-        balance_x: coin::Coin<X>, // Pool balance of token X
-        balance_y: coin::Coin<Y>, // Pool balance of token Y
-        balance_virtual_x: coin::Coin<VirtualX<X, Y>>, // Virtual X balance
-        balance_virtual_y: coin::Coin<VirtualX<Y, X>>, // Virtual Y balance
-        balance_locked_lp: coin::Coin<LPToken<X, Y>>, // Locked LP tokens (minimum liquidity)
-        mint_cap: coin::MintCapability<LPToken<X, Y>>, // Mint capability for LP tokens
-        burn_cap: coin::BurnCapability<LPToken<X, Y>>, // Burn capability for LP tokens
-        freeze_cap: coin::FreezeCapability<LPToken<X, Y>>, // Freeze capability for LP tokens
-        mint_virtual_x_cap: coin::MintCapability<VirtualX<X, Y>>, // Mint capability for virtual X
-        burn_virtual_x_cap: coin::BurnCapability<VirtualX<X, Y>>, // Burn capability for virtual X
-        freeze_virtual_x_cap: coin::FreezeCapability<VirtualX<X, Y>>, // Freeze capability for virtual X
-        mint_virtual_y_cap: coin::MintCapability<VirtualX<Y, X>>, // Mint capability for virtual Y
-        burn_virtual_y_cap: coin::BurnCapability<VirtualX<Y, X>>, // Burn capability for virtual Y
-        freeze_virtual_y_cap: coin::FreezeCapability<VirtualX<Y, X>>, // Freeze capability for virtual Y
+        creator: address, // Address of the user who created the pair (admin for this pair)
+        fee_amount: coin::Coin<LPToken<X, Y>>, // Accumulated fees in LP tokens (not yet withdrawn)
+        k_sqrt_last: u64, // Last recorded sqrt(K) for fee calculation (used for fee distribution)
+        balance_x: coin::Coin<X>, // Pool's current balance of token X
+        balance_y: coin::Coin<Y>, // Pool's current balance of token Y
+        balance_virtual_x: coin::Coin<VirtualX<X, Y>>, // Pool's current balance of virtual X
+        balance_virtual_y: coin::Coin<VirtualX<Y, X>>, // Pool's current balance of virtual Y
+        balance_locked_lp: coin::Coin<LPToken<X, Y>>, // Minimum liquidity locked in the pool (cannot be withdrawn)
+        mint_cap: coin::MintCapability<LPToken<X, Y>>, // Capability to mint LP tokens
+        burn_cap: coin::BurnCapability<LPToken<X, Y>>, // Capability to burn LP tokens
+        freeze_cap: coin::FreezeCapability<LPToken<X, Y>>, // Capability to freeze LP tokens
+        mint_virtual_x_cap: coin::MintCapability<VirtualX<X, Y>>, // Capability to mint virtual X
+        burn_virtual_x_cap: coin::BurnCapability<VirtualX<X, Y>>, // Capability to burn virtual X
+        freeze_virtual_x_cap: coin::FreezeCapability<VirtualX<X, Y>>, // Capability to freeze virtual X
+        mint_virtual_y_cap: coin::MintCapability<VirtualX<Y, X>>, // Capability to mint virtual Y
+        burn_virtual_y_cap: coin::BurnCapability<VirtualX<Y, X>>, // Capability to burn virtual Y
+        freeze_virtual_y_cap: coin::FreezeCapability<VirtualX<Y, X>>, // Capability to freeze virtual Y
     }
 
-    /// Table of all TokenPairMetadata for a given pair type
+    /// Table of all TokenPairMetadata for a given pair type.
+    ///
+    /// # Fields
+    /// - `metadatas`: Table mapping pool address to TokenPairMetadata
     struct TokenPairMetadatas<phantom X, phantom Y> has key, store {
         metadatas: table::Table<address, TokenPairMetadata<X, Y>>, // Mapping pool address to metadata
     }
 
-    /// Reserve information for a token pair (real and virtual reserves)
+    /// Reserve information for a token pair (real and virtual reserves).
+    ///
+    /// # Fields
+    /// - `reserve_x`: Real reserve of token X
+    /// - `reserve_y`: Real reserve of token Y
+    /// - `reserve_virtual_x`: Virtual reserve of X
+    /// - `reserve_virtual_y`: Virtual reserve of Y
+    /// - `block_timestamp_last`: Last update timestamp
     struct TokenPairReserve<phantom X, phantom Y> has key, store {
-        reserve_x: u64, // Reserve of token X
-        reserve_y: u64, // Reserve of token Y
+        reserve_x: u64, // Real reserve of token X
+        reserve_y: u64, // Real reserve of token Y
         reserve_virtual_x: u64, // Virtual reserve of X
         reserve_virtual_y: u64, // Virtual reserve of Y
-        block_timestamp_last: u64 // Last update timestamp
+        block_timestamp_last: u64 // Last update timestamp (seconds)
     }
 
-    /// Table of all TokenPairReserve for a given pair type
+    /// Table of all TokenPairReserve for a given pair type.
+    ///
+    /// # Fields
+    /// - `reserves`: Table mapping pool address to TokenPairReserve
     struct TokenPairReserves<phantom X, phantom Y> has key, store {
         reserves: table::Table<address, TokenPairReserve<X, Y>>, // Mapping pool address to reserves
     }
 
-    /// Main module resource, stores admin, fee info, and event handle for pair creation
+    /// Main module resource, stores admin, fee info, and event handle for pair creation.
+    ///
+    /// # Fields
+    /// - `signer_cap`: Capability to sign as resource account
+    /// - `fee_to`: Address to receive protocol fees
+    /// - `fee_amount_apt`: Accumulated fees in APT
+    /// - `admin`: Admin address
+    /// - `creation_fee_in_apt`: Fee for creating a new pair
+    /// - `pair_created`: Event handle for pair creation
     struct SwapInfo has key {
         signer_cap: account::SignerCapability, // Capability to sign as resource account
         fee_to: address, // Address to receive protocol fees
@@ -129,25 +214,39 @@ module ciswap::swap {
         creation_fee_in_apt: u64, // Fee for creating a new pair
         pair_created: event::EventHandle<PairCreatedEvent> // Event handle for pair creation
     }
-    
-    // errors
+
+    // ------------------------------------------------------------------------
+    // Error Codes
+    // ------------------------------------------------------------------------
     // Error codes for various failure conditions
-    const ERROR_ALREADY_INITIALIZED: u64 = 1;
-    const ERROR_NOT_ADMIN: u64 = 2;
-    const ERROR_REDEMPTION_NOT_ENOUGH: u64 = 3;
-    const ERROR_TOKEN_A_NOT_ZERO: u64 = 4;
-    const ERROR_TOKEN_B_NOT_ZERO: u64 = 5;
-    const ERROR_TOKEN_NOT_SORTED: u64 = 6;
-    const ERROR_INSUFFICIENT_AMOUNT: u64 = 7;
-    const ERROR_INVALID_AMOUNT: u64 = 8;
-    const ERROR_INSUFFICIENT_LIQUIDITY: u64 = 9;
-    const ERROR_INSUFFICIENT_INPUT_AMOUNT: u64 = 10;
-    const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 11;
-    const ERROR_PAIR_NOT_CREATED: u64 = 12;
-    const ERROR_PAIR_CREATED: u64 = 13;
-    
-    // events
-    /// Event emitted when a new pair is created
+    const ERROR_ALREADY_INITIALIZED: u64 = 1; // Pair already initialized
+    const ERROR_NOT_ADMIN: u64 = 2; // Not admin
+    const ERROR_REDEMPTION_NOT_ENOUGH: u64 = 3; // Not enough tokens to redeem
+    const ERROR_TOKEN_A_NOT_ZERO: u64 = 4; // Token A balance not zero
+    const ERROR_TOKEN_B_NOT_ZERO: u64 = 5; // Token B balance not zero
+    const ERROR_TOKEN_NOT_SORTED: u64 = 6; // Token types not sorted
+    const ERROR_INSUFFICIENT_AMOUNT: u64 = 7; // Insufficient amount
+    const ERROR_INVALID_AMOUNT: u64 = 8; // Invalid amount
+    const ERROR_INSUFFICIENT_LIQUIDITY: u64 = 9; // Insufficient liquidity
+    const ERROR_INSUFFICIENT_INPUT_AMOUNT: u64 = 10; // Insufficient input amount
+    const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 11; // Insufficient output amount
+    const ERROR_PAIR_NOT_CREATED: u64 = 12; // Pair not created
+    const ERROR_PAIR_CREATED: u64 = 13; // Pair already created
+
+    // ------------------------------------------------------------------------
+    // Events
+    // ------------------------------------------------------------------------
+    /// Event emitted when a new pair is created.
+    ///
+    /// # Fields
+    /// - `sender_addr`: Address of the creator
+    /// - `pool_addr`: Address of the new pool
+    /// - `token_x`: Name of token X
+    /// - `token_y`: Name of token Y
+    /// - `virtual_token_x`: Name of virtual token X
+    /// - `balance_virtual_token_x`: Initial virtual X balance
+    /// - `virtual_token_y`: Name of virtual token Y
+    /// - `balance_virtual_token_y`: Initial virtual Y balance
     struct PairCreatedEvent has drop, store {
         sender_addr: address, // Address of the creator
         pool_addr: address,   // Address of the new pool
@@ -159,11 +258,22 @@ module ciswap::swap {
         balance_virtual_token_y: u64     // Initial virtual Y balance
     }
 
-    // methods
-    /// Initializes the module by creating the SwapInfo resource in the resource account
+    // ------------------------------------------------------------------------
+    // Core Methods
+    // ------------------------------------------------------------------------
+
+    /// Initializes the module by creating the SwapInfo resource in the resource account.
+    ///
+    /// # Arguments
+    /// - `sender`: The deployer signer
+    ///
+    /// # Effects
+    /// - Creates the SwapInfo resource in the resource account
+    /// - Sets up admin, fee recipient, and event handle
     fun init_module(sender: &signer) {
-        // Retrieve the resource account capability
+        // Retrieve the resource account capability for the deployer
         let signer_cap = resource_account::retrieve_resource_account_cap(sender, DEPLOYER);
+        // Create a signer for the resource account
         let resource_signer = account::create_signer_with_capability(&signer_cap);
         // Store SwapInfo in the resource account
         move_to(&resource_signer, SwapInfo {
@@ -176,42 +286,81 @@ module ciswap::swap {
         });
     }
 
-    /// Registers the LP token type for a pair in the coin module
+    /// Registers the LP token type for a pair in the coin module.
+    ///
+    /// # Type Parameters
+    /// - `X`, `Y`: Token types for the LP token
+    /// # Arguments
+    /// - `sender`: The signer to register the coin store
     public fun register_lp<X, Y>(sender: &signer) {
         coin::register<LPToken<X, Y>>(sender);
     }
 
-    /// Registers the virtual token type for a pair in the coin module
+    /// Registers the virtual token type for a pair in the coin module.
+    ///
+    /// # Type Parameters
+    /// - `X`, `Y`: Token types for the virtual token
+    /// # Arguments
+    /// - `sender`: The signer to register the coin store
     public fun register_virtual_x<X,Y>(sender: &signer) {
         coin::register<VirtualX<X,Y>>(sender);
     }
 
-    /// Checks if a pair is already created for the given pool address
+    /// Checks if a pair is already created for the given pool address.
+    ///
+    /// # Type Parameters
+    /// - `X`, `Y`: Token types for the pair
+    /// # Arguments
+    /// - `pool_addr`: Address of the pool
+    /// # Returns
+    /// - `bool`: True if the pair exists, false otherwise
     public fun is_pair_created<X, Y>(pool_addr: address): bool acquires TokenPairReserves {
+        // If the reserves table does not exist, the pair is not created
         if (!exists<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT)) {
             return false;
         };
+        // Check if the reserves table contains the pool address
         let token_pair_reserves = borrow_global<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
         table::contains(&token_pair_reserves.reserves, pool_addr)
     }
-    /// Creates a new token pair pool with specified virtual balances
+
+    /// Creates a new token pair pool with specified virtual balances.
+    ///
+    /// # Type Parameters
+    /// - `X`, `Y`: Token types for the pair
+    /// # Arguments
+    /// - `sender`: The signer creating the pair
+    /// - `pool_addr`: Pool address (provided off-chain)
+    /// - `amount_virtual_x`: Initial virtual X liquidity
+    /// - `amount_virtual_y`: Initial virtual Y liquidity
+    ///
+    /// # Effects
+    /// - Checks that the pair is not already created
+    /// - Transfers creation fee
+    /// - Initializes LP and virtual tokens
+    /// - Stores metadata and reserves
+    /// - Emits PairCreatedEvent
     public fun create_pair<X, Y>(
         sender: &signer,
         pool_addr: address, // Pool address, provided off-chain
         amount_virtual_x: u64, // Initial virtual X liquidity
         amount_virtual_y: u64  // Initial virtual Y liquidity
     ) acquires SwapInfo, TokenPairMetadatas, TokenPairReserves {
-        // Ensure the pair is not already initialized
+        // --------------------------------------------------------------------
+        // 1. Check that the pair is not already initialized
         assert!(!is_pair_created<X, Y>(pool_addr), ERROR_ALREADY_INITIALIZED);
         let sender_addr = signer::address_of(sender);
         let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
         let resource_signer = account::create_signer_with_capability(&swap_info.signer_cap);
 
-        // Transfer the creation fee in APT to the resource account
+        // --------------------------------------------------------------------
+        // 2. Transfer the creation fee in APT to the resource account
         let creation_fee = coin::withdraw<AptosCoin>(sender, swap_info.creation_fee_in_apt);
         coin::merge(&mut swap_info.fee_amount_apt, creation_fee);
 
-        // Create the LP token for this pair
+        // --------------------------------------------------------------------
+        // 3. Create the LP token for this pair
+        // Compose LP token name: "CiSwap-<X>-<Y>-LP"
         let lp_name: string::String = string::utf8(b"CiSwap-");
         let name_x = coin::symbol<X>();
         let name_y = coin::symbol<Y>();
@@ -219,10 +368,11 @@ module ciswap::swap {
         string::append_utf8(&mut lp_name, b"-");
         string::append(&mut lp_name, name_y);
         string::append_utf8(&mut lp_name, b"-LP");
+        // If name is too long, use a generic name
         if (string::length(&lp_name) > MAX_COIN_NAME_LENGTH) {
             lp_name = string::utf8(b"CiSwap LPs");
         };
-        // Initialize the LP token
+        // Initialize the LP token and get capabilities
         let (burn_cap, freeze_cap, mint_cap) = coin::initialize<LPToken<X, Y>>(
             &resource_signer,
             lp_name,
@@ -233,7 +383,8 @@ module ciswap::swap {
         // Register LP CoinStore for minimum liquidity lock
         register_lp<X, Y>(&resource_signer);
 
-        // Create and register the virtual token X
+        // --------------------------------------------------------------------
+        // 4. Create and register the virtual token X
         let virtual_token_x_name: string::String = string::utf8(b"ci");
         string::append(&mut virtual_token_x_name    , name_x);
         let (burn_virtual_x_cap, freeze_virtual_x_cap, mint_virtual_x_cap) = coin::initialize<VirtualX<X, Y>>(
@@ -249,7 +400,7 @@ module ciswap::swap {
             amount_virtual_x,
             &mint_virtual_x_cap
         );
-        // Create and register the virtual token Y
+        // 5. Create and register the virtual token Y
         let virtual_token_y_name: string::String = string::utf8(b"ci");
         string::append(&mut virtual_token_y_name, name_y);
         let (burn_virtual_y_cap, freeze_virtual_y_cap, mint_virtual_y_cap) = coin::initialize<VirtualX<Y, X>>(
@@ -266,7 +417,8 @@ module ciswap::swap {
             &mint_virtual_y_cap
         );
 
-        // Compute the minimum locked liquidity for the pool
+        // --------------------------------------------------------------------
+        // 6. Compute the minimum locked liquidity for the pool
         let locked_liquidity = pool_math_utils::calculate_locked_liquidity(
             amount_virtual_x,
             amount_virtual_y
@@ -274,7 +426,8 @@ module ciswap::swap {
         // Mint the locked LP tokens to the resource account
         let balance_locked_lp = coin::mint<LPToken<X, Y>>(locked_liquidity, &mint_cap);
 
-        // Create the metadata table if it doesn't exist
+        // --------------------------------------------------------------------
+        // 7. Create the metadata table if it doesn't exist
         if (!exists<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT)) {
             move_to<TokenPairMetadatas<X, Y>>(
                 &resource_signer,
@@ -309,7 +462,8 @@ module ciswap::swap {
             }
         );  
         
-        // Create the reserves table if it doesn't exist
+        // --------------------------------------------------------------------
+        // 8. Create the reserves table if it doesn't exist
         if (!exists<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT)) {
             move_to<TokenPairReserves<X, Y>>(
                 &resource_signer,
@@ -334,7 +488,8 @@ module ciswap::swap {
             }
         );
 
-        // Create and store the event holder for this pair
+        // --------------------------------------------------------------------
+        // 9. Create and store the event holder for this pair
         move_to<PairEventHolder<X, Y>>(
             &resource_signer,
             PairEventHolder {
@@ -345,7 +500,8 @@ module ciswap::swap {
             }
         );
 
-        // Emit the pair created event
+        // --------------------------------------------------------------------
+        // 10. Emit the pair created event
         let token_x = type_info::type_name<X>();
         let token_y = type_info::type_name<Y>();
 
@@ -363,7 +519,7 @@ module ciswap::swap {
             }
         );
     }
-    
+
     /// Returns the current balances of X, Y, virtual X, and virtual Y in the pool
     public fun token_balances<X, Y>(pool_addr: address): (u64, u64, u64, u64) acquires TokenPairMetadatas {
         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);

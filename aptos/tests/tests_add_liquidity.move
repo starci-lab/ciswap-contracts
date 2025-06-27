@@ -135,7 +135,7 @@ module ciswap::tests_add_liquidity {
             200 * math64::pow(10, 8)
         );
         // Should fail: adding zero liquidity
-        let failed = swap::add_liquidity<TestSTARCI, TestBUSD>(
+        swap::add_liquidity<TestSTARCI, TestBUSD>(
             alice,
             pool_addr,
             0,
