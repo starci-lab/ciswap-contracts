@@ -1,16 +1,26 @@
-// Pool math utilities for ciswap
+/// Pool math utilities for CiSwap: provides all mathematical operations for pool logic
 module ciswap::pool_math_utils {
     use aptos_framework::math128::{Self};
 
+    /// Multiplier for virtual reserves (1.25x)
     const VIRTUAL_MULTIPLIER: u64 = 1_250_000; // 1.25
+    /// Trading fee (0.3%)
     const FEE: u64 = 3_000; // 0.3% trading fee
+    /// Portion of fee that goes to LPs (10%)
     const LP_FEE: u64 = 10_000; // 10% of the fee goes to LPs
 
     // error codes
     const ERROR_INSUFFICIENT_AMOUNT: u64 = 0;
 
     /// Calculate the locked liquidity using virtual reserves.
-    /// This is typically the geometric mean of virtual_x and virtual_y.
+    /// This is typically the geometric mean of virtual_x and virtual_y, scaled by VIRTUAL_MULTIPLIER.
+    ///
+    /// # Arguments
+    /// - `virtual_x`: Virtual reserve of X
+    /// - `virtual_y`: Virtual reserve of Y
+    ///
+    /// # Returns
+    /// - `u64`: Amount of locked liquidity
     public fun calculate_locked_liquidity(
         virtual_x: u64,
         virtual_y: u64,
@@ -22,15 +32,10 @@ module ciswap::pool_math_utils {
         liquidity
     }
 
-    /// Get the amount out for a given amount in, using the formula:
-    /// k = 
-    /// (reserve X + 1.25 * reserve virtual X) * (reserve Y + 1.25 * reserve virtual Y)
-    /// k = (reserve X + amount_in + 1.25 * reserve virtual X) 
-    /// * (reserve Y + 1.25 * reserve virtual Y - amount_out)
-    /// => amount_out = 
-    /// reserve Y + 1.25 * reserve virtual Y 
-    /// - k / (reserve X + amount_in + 1.25 * reserve virtual X)
-    /// since we have fee, so that amount_out = net * (1_0000 - FEE) / 1_0000
+    /// Returns the actual reserves (real + virtual) for both X and Y
+    ///
+    /// # Returns
+    /// - `(u64, u64)`: (actual_x, actual_y)
     public fun get_actual_x_y(
         reserve_x: u64,
         reserve_y: u64,
@@ -43,6 +48,7 @@ module ciswap::pool_math_utils {
         (actual_x, actual_y)
     }
 
+    /// Returns the product K = (actual_x * actual_y)
     public fun get_k(
         reserve_x: u64,
         reserve_y: u64,
@@ -55,6 +61,7 @@ module ciswap::pool_math_utils {
         k_last
     }
 
+    /// Returns the square root of K (for fee and liquidity calculations)
     public fun get_k_sqrt(
         reserve_x: u64,
         reserve_y: u64,
@@ -66,7 +73,16 @@ module ciswap::pool_math_utils {
         (k_sqrt as u64)
     }
 
-    /// Get the amount out for a given amount in, using the formula:
+    /// Calculates the output amount for a given input, using the pool's invariant and fee
+    ///
+    /// # Arguments
+    /// - `amount_in`: Amount of input token
+    /// - `x_for_y`: Direction of swap (true if X for Y)
+    /// - `reserve_x`, `reserve_y`: Real reserves
+    /// - `reserve_virtual_x`, `reserve_virtual_y`: Virtual reserves
+    ///
+    /// # Returns
+    /// - `u64`: Output amount after fee
     public fun get_amount_out(
         amount_in: u64,
         x_for_y: bool,
@@ -97,7 +113,16 @@ module ciswap::pool_math_utils {
         amount_out
     }
 
-    // get the amount in for a given amount out, using the formula:
+    /// Calculates the input amount required for a desired output, using the pool's invariant and fee
+    ///
+    /// # Arguments
+    /// - `amount_out`: Desired output amount
+    /// - `x_for_y`: Direction of swap (true if X for Y)
+    /// - `reserve_x`, `reserve_y`: Real reserves
+    /// - `reserve_virtual_x`, `reserve_virtual_y`: Virtual reserves
+    ///
+    /// # Returns
+    /// - `u64`: Required input amount
     public fun get_amount_in(
         amount_out: u64,
         x_for_y: bool,
@@ -128,48 +153,15 @@ module ciswap::pool_math_utils {
         amount_in
     }
 
-    // get the amount of actual tokens out, if reserveX < amount_out
-    // this is the way virtual liquidity work. You will receive virtual token if the reserve is not enough.
-    public fun get_tokens_amount_out(
-        amount_in: u64,
-        x_for_y: bool,
-        reserve_x: u64,
-        reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
-    ): (u64, u64) {
-       let amount_out = get_amount_out(
-        amount_in, 
-        x_for_y, 
-        reserve_x, 
-        reserve_y, 
-        reserve_virtual_x, 
-        reserve_virtual_y
-    );
-       if (x_for_y) {
-            // if reserve_x is not enough, return reserve_x and the amount in minus reserve_x
-            if (amount_out > reserve_y) {
-                return (reserve_y, amount_out - reserve_y);
-            };
-            // if reserve_x is enough, return 0 for reserve_x and the amount in for reserve_y
-            return (amount_out, 0);
-        };
-        // if reserve_y is not enough, return reserve_y and the amount in minus reserve_y
-        if (amount_out > reserve_x) {
-            return (reserve_x, amount_out - reserve_x);
-        };
-        // if reserve_x is enough, return 0 for reserve_x and the amount in for reserve_y
-        (amount_out, 0)
-    }
-
-    // get the amount of tokens when virtual tokens return back into the pool
-    public fun get_redeemed_amount(
-        amount: u64,
-    ): (u64) {
-        amount * VIRTUAL_MULTIPLIER / 1_000_000
-    }
-
-    // quote the amount of token Y for a given amount of token X
+    /// Quotes the amount of token Y for a given amount of token X, using the current reserves
+    ///
+    /// # Arguments
+    /// - `amount_x`: Amount of token X
+    /// - `reserve_x`, `reserve_y`: Real reserves
+    /// - `reserve_virtual_x`, `reserve_virtual_y`: Virtual reserves
+    ///
+    /// # Returns
+    /// - `u64`: Quoted amount of token Y
     public fun quote(
         amount_x: u64, 
         reserve_x: u64, 
@@ -189,6 +181,13 @@ module ciswap::pool_math_utils {
         ((amount_x as u128) * (actual_y as u128) / (actual_x as u128)) as u64
     }
 
+    /// Splits a given amount into LP and fee portions
+    ///
+    /// # Arguments
+    /// - `amount`: Total amount to split
+    ///
+    /// # Returns
+    /// - `(u64, u64)`: (to_lp, fee)
     public fun get_liquidity_and_fee_amount(
         amount: u64,
     ): (u64, u64) {
