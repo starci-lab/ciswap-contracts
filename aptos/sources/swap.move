@@ -18,6 +18,7 @@ module ciswap::swap {
     // constants
     const ZERO_ACCOUNT: address = @zero;
     const DEFAULT_ADMIN: address = @default_admin;
+    const DEFAULT_FEE_TO: address = @fee_to;
     const RESOURCE_ACCOUNT: address = @ciswap;
     const DEPLOYER: address = @deployer;
     // The maximum length of the coin name
@@ -146,6 +147,7 @@ module ciswap::swap {
     struct SwapInfo has key {
         signer_cap: account::SignerCapability,
         fee_to: address,
+        fee_amount_apt: coin::Coin<AptosCoin>,
         admin: address,
         creation_fee_in_apt: u64,
         pair_created: event::EventHandle<PairCreatedEvent>
@@ -188,7 +190,8 @@ module ciswap::swap {
         // send the swap info to the resource account
         move_to(&resource_signer, SwapInfo {
             signer_cap,
-            fee_to: ZERO_ACCOUNT,
+            fee_to: DEFAULT_FEE_TO,
+            fee_amount_apt: coin::zero<AptosCoin>(),
             creation_fee_in_apt: CREATION_FEE_IN_APT,
             admin: DEFAULT_ADMIN,
             pair_created: account::new_event_handle<PairCreatedEvent>(&resource_signer),
@@ -207,6 +210,9 @@ module ciswap::swap {
 
     // Check if pair is already created
     public fun is_pair_created<X, Y>(pool_addr: address): bool acquires TokenPairReserves {
+        if (!exists<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT)) {
+            return false;
+        };
         let token_pair_reserves = borrow_global<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
         table::contains(&token_pair_reserves.reserves, pool_addr)
     }
@@ -225,8 +231,9 @@ module ciswap::swap {
 
         // transfer the creation fee in apt to the resource account
         let creation_fee = coin::withdraw<AptosCoin>(sender, swap_info.creation_fee_in_apt);
-        // transfer the creation fee to the fee_to address
-        coin::deposit(swap_info.fee_to, creation_fee);
+        // update the fee amount in the swap info
+        // merge the fee amount in apt to the swap info
+        coin::merge(&mut swap_info.fee_amount_apt, creation_fee);
 
         // create the LP token
         let lp_name: string::String = string::utf8(b"CiSwap-");
@@ -343,15 +350,17 @@ module ciswap::swap {
             );
         };
 
+        let reserves = borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
+        let block_timestamp_last = timestamp::now_seconds();
         table::add(
-            &mut borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT).reserves,
+            &mut reserves.reserves,
             pool_addr, // the pool id is 0 for the first pool
             TokenPairReserve {
                 reserve_x: 0,
                 reserve_y: 0,
                 reserve_virtual_x: amount_virtual_x,
                 reserve_virtual_y: amount_virtual_y,
-                block_timestamp_last: timestamp::now_seconds()
+                block_timestamp_last
             }
         );
 

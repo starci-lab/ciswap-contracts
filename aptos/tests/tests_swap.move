@@ -8,6 +8,7 @@ module ciswap::tests_swap {
     use aptos_framework::math64::{Self};
     use ciswap::swap::{Self, LPToken, VirtualX };
     use ciswap::pool_math_utils::{Self};
+    use aptos_framework::aptos_coin::{Self, AptosCoin};
     use tests_coins::test_coins::{
         Self, 
         TestSTARCI, 
@@ -51,6 +52,7 @@ module ciswap::tests_swap {
         account::create_account_for_test(signer::address_of(deployer));
         account::create_account_for_test(signer::address_of(admin));
         account::create_account_for_test(signer::address_of(treasury));
+
         resource_account::create_resource_account(
             deployer,
             b"ciswap", 
@@ -70,6 +72,7 @@ module ciswap::tests_swap {
         alice: &signer,
         aptos_framework: &signer,
     ) {
+        let pool_addr = @0x23456;
         account::create_account_for_test(signer::address_of(alice));
         // Setup the test environment
         setup_test_with_genesis(deployer, admin, treasury, resource_account, aptos_framework);
@@ -77,10 +80,11 @@ module ciswap::tests_swap {
         let coin_owner = test_coins::init_coins();
         test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
         test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
-        
+    
         // Create a pair
         swap::create_pair<TestSTARCI, TestBUSD>(
             alice,
+            pool_addr,
             100 * math64::pow(10, 8),
             200 * math64::pow(10, 8)
         );
@@ -89,6 +93,7 @@ module ciswap::tests_swap {
         // add liquidity
         swap::add_liquidity<TestSTARCI, TestBUSD>(
             alice,
+            pool_addr,
             100,
             200
         );
@@ -97,6 +102,7 @@ module ciswap::tests_swap {
         let alice_address = signer::address_of(alice);
         let (amount_out, amount_virtual_out) = swap::swap<TestSTARCI, TestBUSD>(
             alice,
+            pool_addr,
             amount_in,
             true,
             alice_address, // recipient is the same as the sender

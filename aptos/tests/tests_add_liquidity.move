@@ -16,6 +16,8 @@ module ciswap::tests_add_liquidity {
     use aptos_framework::math64::{Self};
     use ciswap::swap::{Self, LPToken, VirtualX };
     use ciswap::pool_math_utils::{Self};
+    use aptos_framework::aptos_coin::{Self, AptosCoin};
+
 
     // Import the swap module
     const ERROR_TOKEN_A_NOT_ZERO: u64 = 0;
@@ -77,29 +79,32 @@ module ciswap::tests_add_liquidity {
         let coin_owner = test_coins::init_coins();
         test_coins::register_and_mint<TestSTARCI>(&coin_owner, alice, 100 * math64::pow(10, 8));
         test_coins::register_and_mint<TestBUSD>(&coin_owner, alice, 100 * math64::pow(10, 8));
-        
+        // Create a pool address
+        let pool_addr = @0x23456;
         // Create a pair
         swap::create_pair<TestSTARCI, TestBUSD>(
             alice,
+            pool_addr,
             100 * math64::pow(10, 8),
             200 * math64::pow(10, 8)
         );
 
         // Check the initial balances
-        let k_last = swap::k_sqrt<TestSTARCI, TestBUSD>();
+        let k_last = swap::k_sqrt<TestSTARCI, TestBUSD>(pool_addr);
 
         // add liquidity
         swap::add_liquidity<TestSTARCI, TestBUSD>(
             alice,
+            pool_addr,
             100,
             200
         );
-        let k_last_after = swap::k_sqrt<TestSTARCI, TestBUSD>();
+        let k_last_after = swap::k_sqrt<TestSTARCI, TestBUSD>(pool_addr);
         // check your LP token balance
         let lp_token_balance = coin::balance<LPToken<TestSTARCI, TestBUSD>>(signer::address_of(alice));
         // get the fee amount
         // lp balance equal the differ in k
-        assert!(lp_token_balance + swap::fee_amount<TestSTARCI, TestBUSD>() == (
+        assert!(lp_token_balance + swap::fee_amount<TestSTARCI, TestBUSD>(pool_addr) == (
             k_last_after - k_last
         ), ERROR_LOCKED_LP_TOKEN_BALANCE_MISMATCH);
     }

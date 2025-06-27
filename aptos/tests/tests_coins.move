@@ -2,6 +2,8 @@
 module tests_coins::test_coins {
     use aptos_framework::account::{Self};
     use aptos_framework::managed_coin::{Self};
+    use aptos_framework::aptos_coin::{Self, AptosCoin};
+    use aptos_framework::math64::{Self};
     use std::signer::{Self};
 
     struct TestSTARCI {}
@@ -12,7 +14,6 @@ module tests_coins::test_coins {
 
     public fun init_coins(): signer {
         let account = account::create_account_for_test(@tests_coins);
-
         // init coins
         managed_coin::initialize<TestSTARCI>(
             &account,
@@ -44,7 +45,6 @@ module tests_coins::test_coins {
             9,
             false,
         );
-
         managed_coin::initialize<TestAPT>(
             &account,
             b"Aptos",

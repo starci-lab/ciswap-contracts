@@ -12,9 +12,10 @@ ciswap = "_"
 deployer = "4181227708680af48320e94991257fa01d7d953518f10589390895a02996e139"
 tests_coins = "0x16"
 tests_add_liquidity = "0x17"
+fee_to = "4181227708680af48320e94991257fa01d7d953518f10589390895a02996e139"
 
 [dev-addresses]
-ciswap = "c5ac7cb0c21cba2588ac8e8fa385a6770c9530a733b4e3b438c63b9fe45bdbf2"
+ciswap = "2a0f9315bc0087274a7249297189b1a43fa7f7a8d7a3daf239fc7d8674fe1afd"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"
