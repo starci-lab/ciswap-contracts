@@ -3,7 +3,7 @@ module ciswap::quoter {
     // Import the swap module for quoting logic
     use ciswap::swap::{Self};
 
-    /// Calls the get_amount_out function from the swap module to quote output for a given input
+    /// Quotes the output amount for a given input, using the swap module's logic.
     ///
     /// # Type Parameters
     /// - `X`: Type of the input token
@@ -16,6 +16,9 @@ module ciswap::quoter {
     ///
     /// # Returns
     /// - `(u64, u64)`: Tuple of (amount_out, amount_virtual_out)
+    ///
+    /// # Details
+    /// This function only returns the quote, it does not perform the swap or change any state.
     #[view]
     public fun get_amount_out<X, Y>(
         pool_addr: address,
@@ -32,7 +35,7 @@ module ciswap::quoter {
         )
     }
 
-    /// Calls the get_amount_in function from the swap module to quote input required for a given output
+    /// Quotes the input amount required for a given output, using the swap module's logic.
     ///
     /// # Type Parameters
     /// - `X`: Type of the input token
@@ -45,6 +48,9 @@ module ciswap::quoter {
     ///
     /// # Returns
     /// - `u64`: Required input amount
+    ///
+    /// # Details
+    /// This function only returns the quote, it does not perform the swap or change any state.
     #[view]
     public fun get_amount_in<X, Y>(
         pool_addr: address,

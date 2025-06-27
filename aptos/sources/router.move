@@ -18,6 +18,9 @@ module ciswap::router {
     /// - `x_for_y`: Direction of swap (true if X for Y)
     /// - `recipient_addr`: Address to receive the output tokens
     /// - `limit_amount_calculated`: Slippage protection (max output allowed)
+    ///
+    /// # Details
+    /// This function checks that the pool exists, then calls the swap logic in the swap module.
     public entry fun swap<X, Y>(
         sender: &signer,
         pool_addr: address,
@@ -50,6 +53,9 @@ module ciswap::router {
     /// - `pool_addr`: Address of the new pool
     /// - `virtual_x`: Initial virtual X liquidity
     /// - `virtual_y`: Initial virtual Y liquidity
+    ///
+    /// # Details
+    /// This function checks that the pool does not already exist, then calls the create_pair logic in the swap module.
     public entry fun create_pair<X, Y>(
         sender: &signer,
         pool_addr: address,
@@ -78,6 +84,9 @@ module ciswap::router {
     /// - `pool_addr`: Address of the pool
     /// - `amount_x`: Amount of token X to add
     /// - `amount_y`: Amount of token Y to add
+    ///
+    /// # Details
+    /// This function checks that the pool exists, then calls the add_liquidity logic in the swap module.
     public entry fun add_liquidity<X, Y>(
         sender: &signer,
         pool_addr: address,
@@ -107,6 +116,9 @@ module ciswap::router {
     /// - `amount_virtual_x`: Amount of virtual X to redeem
     /// - `amount_virtual_y`: Amount of virtual Y to redeem
     /// - `recipient_addr`: Address to receive the real tokens
+    ///
+    /// # Details
+    /// This function checks that the pool exists, then calls the redeem logic in the swap module.
     public entry fun redeem<X, Y>(
         sender: &signer,
         pool_addr: address,
