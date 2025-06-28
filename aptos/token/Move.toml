@@ -1,0 +1,18 @@
+[package]
+name = "token"
+version = "1.0.0"
+authors = []
+
+[addresses]
+token = "_"
+deployer = "61765a632bbb567496b0e338b39abdb66f6d9ca5bef34541b25b6f63d4ba6e03"
+
+[dev-addresses]
+token = "8db7eb6ca8aa616b9d9f4319874ca8d0e25b449297378c02c99e9b4ac945e860"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]
