@@ -8,7 +8,7 @@ token = "_"
 deployer = "61765a632bbb567496b0e338b39abdb66f6d9ca5bef34541b25b6f63d4ba6e03"
 
 [dev-addresses]
-token = "8db7eb6ca8aa616b9d9f4319874ca8d0e25b449297378c02c99e9b4ac945e860"
+token = "1d8ffc83a8bb02619d4010a6aee0b4df9e3b7138b264de9201331c7da50797ea"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"
