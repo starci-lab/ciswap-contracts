@@ -13,6 +13,8 @@ deployer = "4181227708680af48320e94991257fa01d7d953518f10589390895a02996e139"
 tests_coins = "0x16"
 tests_add_liquidity = "0x17"
 fee_to = "4181227708680af48320e94991257fa01d7d953518f10589390895a02996e139"
+aptos_framework = "0x1"
+aptos_token_objects = "0x4"
 
 [dev-addresses]
 ciswap = "2a0f9315bc0087274a7249297189b1a43fa7f7a8d7a3daf239fc7d8674fe1afd"
@@ -21,3 +23,10 @@ ciswap = "2a0f9315bc0087274a7249297189b1a43fa7f7a8d7a3daf239fc7d8674fe1afd"
 git = "https://github.com/aptos-labs/aptos-framework.git"
 rev = "mainnet"
 subdir = "aptos-framework"
+
+[dependencies.AptosTokenObjects]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "mainnet"
+subdir = "aptos-move/framework/aptos-token-objects"
+
+

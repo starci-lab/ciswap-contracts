@@ -58,14 +58,10 @@
             let signer_cap = &permission_config.signer_cap;
             // Create a signer from the stored capability
             let resource_signer = account::create_signer_with_capability(signer_cap);
-            // Ensure only the deployer can call this function
-            assert!(signer::address_of(sender) == DEPLOYER, ESENDER_NOT_DEPLOYER);
-
             // If the deployer's account is not registered to hold this token, register it
             if (!coin::is_account_registered<Token>(signer::address_of(sender))) {
                 coin::register<Token>(sender);
             };
-
             // Mint the total supply to the deployer's account
             managed_coin::mint<Token>(
                 &resource_signer,
