@@ -159,7 +159,7 @@ module ciswap::test_assets {
     }
 
     // ───────────── Test 2: Mint Mock FA Tokens ─────────────
-    #[test(user = @0x2)]
+    #[test(user = @0xc0ffee)]
     public fun test_mint_fa_tokens(user: &signer) acquires TestCoins {
         setup_tests();
         init_assets();
@@ -177,7 +177,7 @@ module ciswap::test_assets {
     }
 
     // ───────────── Test 3: Mint Managed-Coin Tokens ─────────────
-    #[test(user = @0x3)]
+    #[test(user = @0xc0ffee)]
     public fun test_mint_mananged_coins(user: &signer) {
         setup_tests();
         init_assets();
@@ -194,7 +194,7 @@ module ciswap::test_assets {
     }
 
     // ───────────── Test Wrap ─────────────
-    #[test(user = @0x4)]
+    #[test(user = @0xc0ffee)]
     public fun test_wrap(user: &signer) {
         setup_tests();
         init_assets();

@@ -121,10 +121,11 @@ module ciswap::fa_utils {
     public fun withdraw_fa_from_address(
         owner: &signer,
         account_address: address,
+        fa_address: address,
         amount: u64
     ): FungibleAsset {
-        let store = object::address_to_object<FungibleStore>(account_address);
-        fungible_asset::withdraw(owner, store, amount)
+        let metadata = object::address_to_object<Metadata>(fa_address);
+        primary_fungible_store::withdraw(owner, metadata, amount)
     }
 
     // ─────────────── Balance Query ───────────────
