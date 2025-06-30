@@ -60,7 +60,9 @@ module ciswap::package_manager {
     }
 
     #[test_only]
-    public fun initialize(sender: &signer) {
-        init_module(sender);
+    public fun init_for_test() {
+        let resource_signer = account::create_signer_for_test(RESOURCE_ACCOUNT);
+        // create a test signer capability
+        init_module(&resource_signer);
     }
 }

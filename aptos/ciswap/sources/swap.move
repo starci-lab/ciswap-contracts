@@ -16,9 +16,9 @@ module ciswap::swap {
     use aptos_framework::fungible_asset::{ Self, FungibleStore, Metadata, FungibleAsset };
     use ciswap::pool_math_utils::{Self};
     use ciswap::package_manager::{Self};
-    use ciswap::position::{Self};
-    use ciswap::fa_utils::{Self};
-    use aptos_framework::object::{Self, Object};
+    use ciswap::position::{ Self };
+    use ciswap::fa_utils::{ Self };
+    use aptos_framework::object::{ Self, Object };
     use ciswap::u64_utils::{Self};
 
     // ------------------------------------------------------------------------
