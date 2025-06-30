@@ -27,18 +27,13 @@ module ciswap::package_manager {
     // ──────────────── Initialization ────────────────
     /// Initializes the package manager module exactly once
     fun init_module(sender: &signer) {
-        // Authorization check
-        assert!(signer::address_of(sender) == DEPLOYER, ENOT_DEPLOYER);
-        
         // Check not already initialized
         assert!(!exists<PermissionConfig>(RESOURCE_ACCOUNT), EALREADY_INITIALIZED);
-
         // Retrieve and store the signer capability
         let signer_cap = resource_account::retrieve_resource_account_cap(
             sender,
             DEPLOYER,
         );
-
         // Verify correct resource account
         let resource_signer = account::create_signer_with_capability(&signer_cap);
         assert!(signer::address_of(&resource_signer) == RESOURCE_ACCOUNT, ENOT_RESOURCE_ACCOUNT);

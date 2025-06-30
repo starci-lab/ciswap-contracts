@@ -13,12 +13,12 @@ module ciswap::swap {
     use aptos_framework::resource_account::{Self};
     use aptos_framework::code::{Self};
     use aptos_framework::table::{ Self, Table };
-    use aptos_framework::fungible_asset::{ Self, FungibleStore };
+    use aptos_framework::fungible_asset::{ Self, FungibleStore, Metadata, FungibleAsset };
     use ciswap::pool_math_utils::{Self};
     use ciswap::package_manager::{Self};
-    use aptos_framework::fungible_asset::{Metadata};
     use ciswap::position::{Self};
     use ciswap::fa_utils::{Self};
+    use aptos_framework::object::{Self, Object};
     use ciswap::u64_utils::{Self};
 
     // ------------------------------------------------------------------------
@@ -40,7 +40,7 @@ module ciswap::swap {
 
         struct FABalance has key, store {
             balance: u64, // The balance of the token
-            fa_address: address, // The address of the fungible asset
+            store: Object<FungibleStore> // The fungible store object for this balance
         }
 
 //     /// The LP Token type, representing liquidity provider tokens for a pair.
@@ -171,13 +171,13 @@ module ciswap::swap {
     struct TokenPairMetadata has key, store {
         creator: address, // Address of the user who created the pair (admin for this pair)
         k_sqrt_last: u64, // Last recorded sqrt(K) for fee calculation (used for fee distribution)
-        balance_x: FABalance, // Pool's current balance of token X
-        balance_y: FABalance, // Pool's current balance of token Y
-        fee_balance_x: FABalance, // Accumulated fees in token X
-        fee_balance_y: FABalance, // Accumulated fees in token Y
+        store_x: Object<FungibleStore>, // Pool's current balance of token X
+        store_y: Object<FungibleStore>, // Pool's current balance of token Y
+        store_fee_x: Object<FungibleStore>, // Accumulated fees in token X
+        store_fee_y: Object<FungibleStore>, // Accumulated fees in token Y
         global_k_sqrt_fee_growth: u64, // Global fee growth for the pair (used for fee distribution)
-        balance_debt_x: FABalance, // Pool's current balance of virtual X
-        balance_debt_y: FABalance, // Pool's current balance of virtual Y
+        store_debt_x: Object<FungibleStore>, // Pool's current balance of virtual X
+        store_debt_y: Object<FungibleStore>, // Pool's current balance of virtual Y
     }
 
     /// Table of all TokenPairMetadata for a given pair type.
@@ -285,7 +285,7 @@ module ciswap::swap {
     /// # Effects
     /// - Creates the SwapInfo resource in the resource account
     /// - Sets up admin, fee recipient, and event handle
-    fun init_module(sender: &signer) {
+    fun init_module(_: &signer) {
         // Store SwapInfo in the resource account
         let resource_signer = package_manager::get_resource_signer();
         move_to(&resource_signer, SwapInfo {
@@ -382,8 +382,11 @@ module ciswap::swap {
         address_y: address, // Address of token Y
         amount_debt_x: u64, // Initial virtual X liquidity
         amount_debt_y: u64  // Initial virtual Y liquidity
-    ) acquires SwapInfo
-    //, TokenPairMetadatas, TokenPairReserves
+    ) acquires 
+        SwapInfo, 
+        PairEventHolder, 
+        TokenPairMetadatas, 
+        TokenPairReserves
     {
         // --------------------------------------------------------------------
         // 1. Check that the pair is not already initialized
@@ -422,7 +425,7 @@ module ciswap::swap {
             symbol
         );
 
-        let salt_x = string::utf8(b"ci-");
+        let salt_x = string::utf8(b"x-");
         string::append(
             &mut salt_x, 
             u64_utils::u64_to_string(pool_id)
@@ -441,9 +444,18 @@ module ciswap::swap {
             )
         );
         // Mint the initial virtual X tokens to the resource account
-        let balance_debt_x = fungible_asset::mint(
-            &fa_utils::get_mint_ref(address_x),
+        let fa_debt_x = fa_utils::mint(
+            address_debt_x,
             amount_debt_x,
+        );
+        let store_debt_x = fa_utils::create_store(
+            &resource_signer,
+            address_debt_x
+        );
+        // Deposit the virtual X tokens into the resource account
+        fungible_asset::deposit(
+            store_debt_x,
+            fa_debt_x
         );
         
         let name_debt_y: string::String = string::utf8(b"ci");
@@ -463,7 +475,7 @@ module ciswap::swap {
             symbol
         );
 
-        let salt_y = string::utf8(b"ci-");
+        let salt_y = string::utf8(b"y-");
         string::append(
             &mut salt_y, 
             u64_utils::u64_to_string(pool_id)
@@ -482,9 +494,18 @@ module ciswap::swap {
             )
         );
         // Mint the initial virtual Y tokens to the resource account
-        let balance_debt_y = fungible_asset::mint(
-            &fa_utils::get_mint_ref(address_y),
+        let fa_debt_y = fa_utils::mint(
+            address_debt_y,
             amount_debt_y,
+        );
+        let store_debt_y = fa_utils::create_store(
+            &resource_signer,
+            address_debt_y
+        );
+        // Deposit the virtual Y tokens into the resource account
+        fungible_asset::deposit(
+            store_debt_y,
+            fa_debt_y
         );
 
         let locked_liquidity = pool_math_utils::calculate_locked_liquidity(
@@ -500,30 +521,24 @@ module ciswap::swap {
             TokenPairMetadata {  
                 creator: sender_addr, // Address of the user who created the pair (admin for this pair)
                 k_sqrt_last: locked_liquidity,
-                fee_balance_x: FABalance {
-                    balance: 0,
-                    fa_address: address_x
-                },
-                fee_balance_y: FABalance {
-                    balance: 0,
-                    fa_address: address_y
-                },
-                balance_x: FABalance {
-                    balance: 0,
-                    fa_address: address_x
-                },
-                balance_y: FABalance {
-                    balance: 0,
-                    fa_address: address_y
-                },
-                balance_debt_x: FABalance {
-                    balance: amount_debt_x,
-                    fa_address: address_debt_x
-                },
-                balance_debt_y: FABalance {
-                    balance: amount_debt_y,
-                    fa_address: address_debt_y
-                },
+                store_fee_x: fa_utils::create_store(
+                    &resource_signer,
+                    address_x
+                ), // Store for accumulated fees in token X
+                store_fee_y: fa_utils::create_store(
+                    &resource_signer,
+                    address_y
+                ), // Store for accumulated fees in token X
+                store_x: fa_utils::create_store(
+                    &resource_signer,
+                    address_x
+                ), // Store for accumulated fees in token X
+                store_y: fa_utils::create_store(
+                    &resource_signer,
+                    address_y
+                ), // Store for accumulated fees in token X
+                store_debt_x, // Store for accumulated fees in token X
+                store_debt_y, // Store for accumulated fees in token X
                 global_k_sqrt_fee_growth: 0, 
             }
         );  

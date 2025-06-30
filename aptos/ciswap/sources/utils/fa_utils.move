@@ -34,7 +34,7 @@ module ciswap::fa_utils {
         permissions: Table<address, FAPermission>,
     }
 
-    fun init_module() {
+    fun init_module(_: &signer) {
         let resource_signer = package_manager::get_resource_signer();
         // Initialize the module with an empty permissions table
         let permissions = table::new<address, FAPermission>();
@@ -63,41 +63,56 @@ module ciswap::fa_utils {
             icon_uri,
             project_uri,
         );
+
+        let constructor_ref_address = object::address_from_constructor_ref(constructor_ref);
  
         let mint_ref = fungible_asset::generate_mint_ref(constructor_ref);
         let burn_ref = fungible_asset::generate_burn_ref(constructor_ref);
         let transfer_ref = fungible_asset::generate_transfer_ref(constructor_ref);
 
-        let permissions = borrow_global_mut<FAPermissions>(constructor_ref.self).permissions;
+        let permissions = &mut borrow_global_mut<FAPermissions>(
+            constructor_ref_address
+        ).permissions;
 
         let permission = FAPermission {
             mint_ref,
             burn_ref,
             transfer_ref
         };
+
+ 
         // Store the permission in the table using the address as key
-        table::add(&mut permissions, constructor_ref.self, permission);
+        table::add(permissions, constructor_ref_address, permission);
 
         // Return the address of the fungible asset
-        constructor_ref.self
+        constructor_ref_address
     }
 
-    public fun get_mint_ref(fa_address: address): MintRef acquires FAPermissions {
-        let permissions = borrow_global<FAPermissions>(fa_address).permissions;
-        let permission = table::borrow(&permissions, fa_address);
-        permission.mint_ref
+    public fun mint(
+        fa_address: address, 
+        amount: u64
+    ): FungibleAsset acquires FAPermissions {
+        let permissions = &borrow_global<FAPermissions>(fa_address).permissions;
+        let permission = table::borrow(permissions, fa_address);
+        let fa = fungible_asset::mint(
+            &permission.mint_ref,
+            amount,
+        );
+        // return the permissioned fungible asset
+        fa
     }
 
-    public fun get_burn_ref(fa_address: address): BurnRef acquires FAPermissions {
-        let permissions = borrow_global<FAPermissions>(fa_address).permissions;
-        let permission = table::borrow(&permissions, fa_address);
-        permission.burn_ref
-    }
-
-    public fun get_transfer_ref(fa_address: address): TransferRef acquires FAPermissions {
-        let permissions = borrow_global<FAPermissions>(fa_address).permissions;
-        let permission = table::borrow(&permissions, fa_address);
-        permission.transfer_ref
+    public fun create_store(
+        owner: &signer,
+        fa_address: address
+    ): Object<FungibleStore> {
+        // Create a primary store for the fungible asset
+        fungible_asset::create_store(
+            &object::create_object_from_account(owner),
+            get_metadata(
+                fa_address
+            ),
+        )
     }
 
     public fun withdraw_fa_from_address(
