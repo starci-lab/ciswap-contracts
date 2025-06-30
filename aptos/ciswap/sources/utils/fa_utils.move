@@ -107,6 +107,16 @@ module ciswap::fa_utils {
         fungible_asset::mint(&permission.mint_ref, amount)
     }
 
+    // ─────────────── Burn ───────────────
+    // Burns a `FungibleAsset` using its stored burn capability.
+    public fun burn(asset: FungibleAsset) acquires FAPermissions {
+        let metadata = fungible_asset::metadata_from_asset(&asset);
+        let fa_address = object::object_address(&metadata);
+        let permissions = &borrow_global<FAPermissions>(RESOURCE_ACCOUNT).permissions;
+        let permission = table::borrow(permissions, fa_address);
+        fungible_asset::burn(&permission.burn_ref, asset);
+    }
+
     // ─────────────── Create Store ───────────────
     // Registers a new account to hold a specific FA by creating a store.
     public fun create_store(owner: &signer, fa_address: address): Object<FungibleStore> {

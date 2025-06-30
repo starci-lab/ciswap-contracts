@@ -174,6 +174,18 @@ module ciswap::test_assets {
         assert!(fa_utils::balance_of(signer::address_of(user), test_coins.usdc_addr) == 200, ERR_USDC_BALANCE_MISMATCH);
         assert!(fa_utils::balance_of(signer::address_of(user), test_coins.busd_addr) == 300, ERR_BUSD_BALANCE_MISMATCH);
         assert!(fa_utils::balance_of(signer::address_of(user), test_coins.bnb_addr) == 400, ERR_BNB_BALANCE_MISMATCH);
+    
+        // take some of the coins and burn them
+        let cetus_fa = fa_utils::withdraw_fa_from_address(
+            user,
+            signer::address_of(user),
+            test_coins.cetus_addr,
+            50
+        );
+        // burn the fungible asset
+        fa_utils::burn(cetus_fa);
+        // check the balance after burning
+        assert!(fa_utils::balance_of(signer::address_of(user), test_coins.cetus_addr) == 50, ERR_CETUS_BALANCE_MISMATCH);
     }
 
     // ───────────── Test 3: Mint Managed-Coin Tokens ─────────────
