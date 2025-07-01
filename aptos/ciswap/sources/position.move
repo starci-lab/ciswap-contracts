@@ -35,7 +35,7 @@ module ciswap::position {
     }
 
     /// Initializes the package manager module exactly once
-    fun init_module(sender: &signer) {
+    fun init_module(_: &signer) {
         let resource_signer = package_manager::get_resource_signer();
         move_to(
             &resource_signer,
@@ -53,13 +53,15 @@ module ciswap::position {
         // Maximum supply cannot be changed after collection creation
         let lp_collection_name: string::String = string::utf8(b"CiSwap LP-");
         string::append(&mut lp_collection_name, u64_utils::u64_to_string(pool_id));
-        collection::create_unlimited_collection(
+        let constructor_ref = collection::create_unlimited_collection(
             &resource_account,
             string::utf8(b"CiSwap LPs"),
             lp_collection_name,
             royalty,
             string::utf8(b"https://ciswap.finance"),
         );
+        object::generate_extend_ref(&constructor_ref);
+
         let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
             signer::address_of(&resource_account)
         );
@@ -95,14 +97,13 @@ module ciswap::position {
             return;
         };
         // create a new position
-        let position = table::borrow_mut(positions, collection_metadata.next_nft_id);
         let royalty = option::none();
         let nft_name: string::String = string::utf8(b"CiSwap LP-");
         string::append(&mut nft_name, u64_utils::u64_to_string(pool_id));
         string::append(&mut nft_name, string::utf8(b"-"));
         string::append(&mut nft_name, u64_utils::u64_to_string(collection_metadata.next_nft_id));
         
-        let nft_constructor_ref = &token::create(
+        let nft_constructor_ref = &token::create_named_token(
             &resource_account,
             collection_metadata.name,
             string::utf8(b"CiSwap LP NFT"),
@@ -111,7 +112,6 @@ module ciswap::position {
             string::utf8(b"https://ciswap.finance"),
         );
 
-        let token_signer = &object::generate_signer(nft_constructor_ref);
         let burn_ref = token::generate_burn_ref(nft_constructor_ref);
         let mutator_ref = token::generate_mutator_ref(nft_constructor_ref);
         let position = Position {
@@ -134,7 +134,8 @@ module ciswap::position {
             &collection_metadata.name,
             &nft_name,
         );
-        let nft = object::address_to_object<Token>(created_nft_addr);
+        let nft 
+            = object::address_to_object<Token>(created_nft_addr);
         object::transfer(
             &resource_account, 
             nft, 

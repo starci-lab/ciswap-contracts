@@ -1,6 +1,6 @@
 /// CiSwap with (X + ciX) (Y + ciY) = K
 module ciswap::swap {
-//     // Importing necessary modules from the standard library, Aptos framework, and local modules
+    // Importing necessary modules from the standard library, Aptos framework, and local modules
     use std::signer::{ Self };
     use std::option::{ Self };
     use std::string::{ Self };
@@ -20,7 +20,6 @@ module ciswap::swap {
     use ciswap::fa_utils::{ Self };
     use aptos_framework::object::{ Self, Object };
     use ciswap::u64_utils::{Self};
-
     // ------------------------------------------------------------------------
     // Constants
     // ------------------------------------------------------------------------
@@ -32,30 +31,13 @@ module ciswap::swap {
     const DEPLOYER: address = @deployer; // Deployer address
     const MAX_COIN_NAME_LENGTH: u64 = 32; // The maximum length of the coin name
     const CREATION_FEE_IN_APT: u64 = 10_000_000; // 0.1 APT, fee for creating a new pair
-
-//     // ------------------------------------------------------------------------
-//     // Structs
-//     // ------------------------------------------------------------------------
-
-
-        struct FABalance has key, store {
-            balance: u64, // The balance of the token
-            store: Object<FungibleStore> // The fungible store object for this balance
-        }
-
-//     /// The LP Token type, representing liquidity provider tokens for a pair.
-//     ///
-//     /// # Type Parameters
-//     /// - `X`: The first token type in the pair (phantom, not stored directly)
-//     /// - `Y`: The second token type in the pair (phantom, not stored directly)
-//     struct LiqudityPositon<phantom X, phantom Y> has key {}
-
-//     /// Virtual token for the token X in a pair (used for virtual liquidity).
-//     ///
-//     /// # Type Parameters
-//     /// - `X`: The token this virtual token represents (phantom)
-//     /// - `Y`: The other token in the pair (phantom)
-//     struct VirtualX<phantom X, phantom Y> has key {}
+    // ------------------------------------------------------------------------
+    // Structs
+    // ------------------------------------------------------------------------
+    struct FABalance has key, store {
+        balance: u64, // The balance of the token
+        store: Object<FungibleStore> // The fungible store object for this balance
+    }
 
     /// The event emitted when liquidity is added to a pool.
     ///
@@ -288,6 +270,7 @@ module ciswap::swap {
     fun init_module(_: &signer) {
         // Store SwapInfo in the resource account
         let resource_signer = package_manager::get_resource_signer();
+        // Initialize the position module
         move_to(&resource_signer, SwapInfo {
             fee_to: DEFAULT_FEE_TO,
             pool_creation_fee_apt: coin::zero<AptosCoin>(),
@@ -837,7 +820,7 @@ module ciswap::swap {
 //     }
 
     /// Adds liquidity to the pool directly, returning optimal amounts and LP tokens
-    fun add_liquidity(
+    public fun add_liquidity(
         sender: &signer,
         pool_id: u64,
         amount_x: u64,
@@ -857,7 +840,7 @@ module ciswap::swap {
         // Calculate optimal amounts to add based on current reserves
         let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
         let reserve = get_reserve_mut(pool_id, reserves);
-        let (a_x, a_y) = {
+        let (desired_x, desired_y) = {
             let amount_y_optimal = pool_math_utils::quote(
                 amount_x, 
                 reserve_x, 
@@ -880,36 +863,34 @@ module ciswap::swap {
             }
         };
 
-        assert!(a_x <= amount_x, ERROR_INSUFFICIENT_AMOUNT);
-        assert!(a_y <= amount_y, ERROR_INSUFFICIENT_AMOUNT);
+        assert!(desired_x <= amount_x, ERROR_INSUFFICIENT_AMOUNT);
+        assert!(desired_y <= amount_y, ERROR_INSUFFICIENT_AMOUNT);
 
         // Extract any excess tokens and deposit the optimal amounts
-        let left_x_fa = fa_utils::withdraw_fa_from_address(
+        let desired_x_fa = fa_utils::withdraw_fa_from_address(
             sender,
-            signer::address_of(sender),
             fa_utils::get_address_from_store(
                 metadata.store_x
             ),
-            amount_y - a_y);
-        let left_y_fa = fa_utils::withdraw_fa_from_address(
+            desired_x);
+        let desired_y_fa = fa_utils::withdraw_fa_from_address(
             sender,
-            signer::address_of(sender),
             fa_utils::get_address_from_store(
                 metadata.store_y
             ),
-            amount_x - a_x);
+            desired_y);
 
         fungible_asset::deposit(
             metadata.store_x,
-            left_x_fa
+            desired_x_fa
         );
         fungible_asset::deposit(
             metadata.store_y,
-            left_y_fa
+            desired_y_fa
         );
 
-        let new_reserve_x = reserve_x + a_x;
-        let new_reserve_y = reserve_y + a_y;
+        let new_reserve_x = reserve_x + desired_x;
+        let new_reserve_y = reserve_y + desired_y;
 
         let new_k_sqrt = pool_math_utils::get_k_sqrt(
             new_reserve_x, 
@@ -935,7 +916,7 @@ module ciswap::swap {
             reserve_debt_y,
             reserve
         );
-        (a_x, a_y)
+        (desired_x, desired_y)
     }
 
     /// Checks if the sender has a CoinStore for type X, and registers if not

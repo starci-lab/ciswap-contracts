@@ -33,5 +33,6 @@ module ciswap::setup {
         );
         package_manager::init_for_test();
         fa_utils::init_for_test();
+        
     }
 }

@@ -191,7 +191,6 @@ module ciswap::tests_assets {
         // take some of the coins and burn them
         let cetus_fa = fa_utils::withdraw_fa_from_address(
             user,
-            signer::address_of(user),
             test_coins.cetus_addr,
             50
         );

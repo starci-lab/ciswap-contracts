@@ -12,40 +12,50 @@ module ciswap::tests_create_pair {
     use aptos_framework::managed_coin::{Self};
     use ciswap::setup::{Self};
     use ciswap::tests_assets::{ Self, TestFAs };
+    use ciswap::position::{Self};
 
     // Error codes for test assertions
-    const ERROR_TOKEN_A_NOT_ZERO: u64 = 0;
-    const ERROR_TOKEN_B_NOT_ZERO: u64 = 1;
-    const ERROR_VIRTUAL_TOKEN_A_MISMATCH: u64 = 2;
-    const ERROR_VIRTUAL_TOKEN_B_MISMATCH: u64 = 3;
-    const ERROR_LOCKED_LP_TOKEN_BALANCE_MISMATCH: u64 = 4;
-    const ERROR_APTOS_BALANCE_MISMATCH: u64 = 5;
+    const ERR_TOKEN_A_NOT_ZERO: u64 = 0;
+    const ERR_TOKEN_B_NOT_ZERO: u64 = 1;
+    const ERR_DEBT_TOKEN_A_MISMATCH: u64 = 2;
+    const ERR_DEBT_TOKEN_B_MISMATCH: u64 = 3;
+    const ERR_LOCKED_LP_TOKEN_BALANCE_MISMATCH: u64 = 4;
+    const ERR_APTOS_BALANCE_MISMATCH: u64 = 5;
+    const ERR_K_LAST_MISMATCH: u64 = 0;
 
-    /// Sets up the test environment with genesis and all required accounts/resources
-    ///
-    /// # Arguments
-    /// - deployer, admin, treasury, resource_account, aptos_framework: signers for various roles
     public fun setup_tests() {
         setup::setup(); // Initializes package manager and fa_utils
         tests_assets::setup(); // Initializes test assets
+        position::init_for_test(); // Initializes the position module
         swap::init_for_test(); // Initializes the swap module
     }
 
+    public fun create_pair_for_test(
+        user: &signer,
+        cetus_amount: u64, // 2 CETUS
+        usdc_amount: u64 // 1 USDC
+    ) {
+        account::create_account_for_test(signer::address_of(user));
+        tests_assets::register_and_mint_aptos_coin(
+            user, 
+            100_000_000 // Mint 1 APT
+        );
+        // Create the test account for Alice
+        let (cetus_addr, usdc_addr, _, _) = tests_assets::get_test_fas();
+        // Alice call the create_pair function
+        swap::create_pair(
+            user,
+            cetus_addr,
+            usdc_addr,
+            cetus_amount, // 2 CETUS
+            usdc_amount, // 1 USDC
+        );
+    }
 
-    /// Test: Create a new pair and check all balances and invariants
-    ///
-    /// # Arguments
-    /// - deployer, admin, resource_account, treasury, alice, aptos_framework: signers for various roles
     #[test(
-        deployer = @deployer, 
-        admin = @default_admin, 
-        resource_account = @ciswap, 
         alice = @0x12346
     )]
     fun test_create_pair(
-        deployer: &signer,
-        admin: &signer,
-        resource_account: &signer,
         alice: &signer
     ) {
         setup_tests(); // Setup the test environment
@@ -67,7 +77,7 @@ module ciswap::tests_create_pair {
         // Check your APT balance, if go correct, you will have 0.9 APT left
         assert!(
             coin::balance<AptosCoin>(signer::address_of(alice)) == 90_000_000,
-            ERROR_APTOS_BALANCE_MISMATCH
+            ERR_APTOS_BALANCE_MISMATCH
         );
         // Check the liquidity pool balances
         let (
@@ -76,27 +86,21 @@ module ciswap::tests_create_pair {
             debt_cetus_balance,
             debt_usdc_balance,
          ) = swap::token_balances(0);
-        assert!(cetus_balance == 0, ERROR_TOKEN_A_NOT_ZERO);
-        assert!(usdc_balance == 0, ERROR_TOKEN_B_NOT_ZERO);
-        assert!(debt_cetus_balance == 200_000_000, ERROR_TOKEN_A_NOT_ZERO);
-        assert!(debt_usdc_balance == 100_000_000, ERROR_TOKEN_B_NOT_ZERO);
+        assert!(cetus_balance == 0, ERR_TOKEN_A_NOT_ZERO);
+        assert!(usdc_balance == 0, ERR_TOKEN_B_NOT_ZERO);
+        assert!(debt_cetus_balance == 200_000_000, ERR_DEBT_TOKEN_A_MISMATCH);
+        assert!(debt_usdc_balance == 100_000_000, ERR_DEBT_TOKEN_B_MISMATCH);
         // check k last
         let k_sqrt_last = swap::k_sqrt_last(0);
         assert!(k_sqrt_last == math64::sqrt(200_000_000 * 100_000_000), 
-            1
+            ERR_K_LAST_MISMATCH
         );
     }
 
     #[test(
-        deployer = @deployer, 
-        admin = @default_admin, 
-        resource_account = @ciswap, 
         alice = @0x12346
     )]
     fun test_create_10_pairs(
-        deployer: &signer,
-        admin: &signer,
-        resource_account: &signer,
         alice: &signer
     ) {
         setup_tests(); // Setup the test environment
@@ -119,7 +123,7 @@ module ciswap::tests_create_pair {
             balance_lelf = balance_lelf - 10_000_000;
             assert!(
                 coin::balance<AptosCoin>(signer::address_of(alice)) == balance_lelf,
-                ERROR_APTOS_BALANCE_MISMATCH
+                ERR_APTOS_BALANCE_MISMATCH
             );
         };
         // Check your APT balance, if go correct, you will have no APT left

@@ -127,7 +127,6 @@ module ciswap::fa_utils {
     /// Withdraws `amount` from a user's FA balance and returns it as a `FungibleAsset` object.
     public fun withdraw_fa_from_address(
         owner: &signer,
-        account_address: address,
         fa_address: address,
         amount: u64
     ): FungibleAsset {
