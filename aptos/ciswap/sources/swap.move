@@ -597,13 +597,13 @@ module ciswap::swap {
         table::borrow(&mut metadatas.metadatas, pool_id)  
     }
 
-//     /// Returns a mutable reference to the metadata for a given pool address
-//     public fun get_metadata_mut<X, Y>(
-//         pool_index: u64, 
-//         metadatas: &mut TokenPairMetadatas<X, Y>
-//     ): &mut TokenPairMetadata<X, Y> {
-//         table::borrow_mut(&mut metadatas.metadatas, pool_index)  
-//     }
+    /// Returns a mutable reference to the metadata for a given pool address
+    public fun get_metadata_mut(
+        pool_index: u64, 
+        metadatas: &mut TokenPairMetadatas
+    ): &mut TokenPairMetadata {
+        table::borrow_mut(&mut metadatas.metadatas, pool_index)  
+    }
 
     // retrieve the reserve by X,Y and pool address
     /// Returns a reference to the reserves for a given pool address
@@ -614,13 +614,13 @@ module ciswap::swap {
         table::borrow(&mut reserves.reserves, pool_id)  
     }
 
-//     /// Returns a mutable reference to the reserves for a given pool address
-//     public fun get_reserve_mut<X, Y>(
-//         pool_index: u64,
-//         reserves: &mut TokenPairReserves<X, Y>
-//     ): &mut TokenPairReserve<X, Y> {
-//         table::borrow_mut(&mut reserves.reserves, pool_index)  
-//     }
+    /// Returns a mutable reference to the reserves for a given pool address
+    public fun get_reserve_mut(
+        pool_index: u64,
+        reserves: &mut TokenPairReserves
+    ): &mut TokenPairReserve {
+        table::borrow_mut(&mut reserves.reserves, pool_index)  
+    }
 
 //     /// Returns the amount of locked LP tokens in the pool
 //     public fun balance_locked_lp<X, Y>(pool_index: u64): u64 acquires TokenPairMetadatas {
@@ -847,7 +847,7 @@ module ciswap::swap {
         u64, 
     ) acquires TokenPairReserves, TokenPairMetadatas {
         let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
-        let metadata = get_metadata(pool_id, metadatas);
+        let metadata = get_metadata_mut(pool_id, metadatas);
         let (
             reserve_x, 
             reserve_y, 
@@ -855,6 +855,8 @@ module ciswap::swap {
             reserve_debt_y
         ) = token_reserves(pool_id);
         // Calculate optimal amounts to add based on current reserves
+        let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
+        let reserve = get_reserve_mut(pool_id, reserves);
         let (a_x, a_y) = {
             let amount_y_optimal = pool_math_utils::quote(
                 amount_x, 
@@ -916,20 +918,23 @@ module ciswap::swap {
             reserve_debt_y
         );
         let k_diff = new_k_sqrt - metadata.k_sqrt_last;
-        // create a NFT LP representing the liquidity added 
 
+        // create a NFT LP representing the liquidity added 
+        position::create_then_transfer_or_update_lp_nft(
+            sender,
+            pool_id,
+            k_diff
+        );
         // update the metadata
-        metadata.k_sqrt_last = new_k_sqrt;
-        
+        metadata.k_sqrt_last = new_k_sqrt;    
         // update the pool's reserves
         update(
             new_reserve_x, 
             new_reserve_y, 
             reserve_debt_x, 
             reserve_debt_y,
-            borrow_global_mut<TokenPairReserve>(RESOURCE_ACCOUNT)
+            reserve
         );
-
         (a_x, a_y)
     }
 
@@ -939,51 +944,6 @@ module ciswap::swap {
             coin::register<X>(sender);
         };
     }
-
-//     /// Adds liquidity to the pool, mints LP tokens, and emits an event
-//     public fun add_liquidity<X, Y>(
-//         sender: &signer,
-//         pool_index: u64,
-//         amount_x: u64,
-//         amount_y: u64
-//     ): (u64, u64, u64) acquires TokenPairReserves, TokenPairMetadatas, PairEventHolder {
-//         // Withdraw tokens from sender and add liquidity
-//         let (a_x, a_y, coin_lp, fee_amount, coin_left_x, coin_left_y) = add_liquidity_direct(
-//             pool_index, 
-//             coin::withdraw<X>(sender, amount_x), 
-//             coin::withdraw<Y>(sender, amount_y)
-//         );
-//         let sender_addr = signer::address_of(sender);
-//         let lp_amount = coin::value(&coin_lp);
-//         assert!(lp_amount > 0, ERROR_INSUFFICIENT_LIQUIDITY);
-//         check_or_register_coin_store<LPToken<X, Y>>(sender);
-//         coin::deposit(sender_addr, coin_lp);
-//         coin::deposit(sender_addr, coin_left_x);
-//         coin::deposit(sender_addr, coin_left_y);
-
-//         // Emit the add liquidity event
-//         let pair_event_holder = borrow_global_mut<PairEventHolder<X, Y>>(RESOURCE_ACCOUNT);
-//         event::emit_event<AddLiquidityEvent<X, Y>>(
-//             &mut pair_event_holder.add_liquidity,
-//             AddLiquidityEvent<X, Y> {
-//                 sender_addr,
-//                 pool_index,
-//                 amount_x: a_x,
-//                 amount_y: a_y,
-//                 liquidity: lp_amount,
-//                 fee_amount: (fee_amount as u64),
-//             }
-//         );
-//         (a_x, a_y, lp_amount)
-//     }
-
-//     /// Sets the protocol fee recipient (admin only)
-//     public entry fun set_fee_to(sender: &signer, new_fee_to: address) acquires SwapInfo {
-//         let sender_addr = signer::address_of(sender);
-//         let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
-//         assert!(sender_addr == swap_info.admin, ERROR_NOT_ADMIN);
-//         swap_info.fee_to = new_fee_to;
-//     }
 
 //     /// Sets the admin address (admin only)
 //     public entry fun set_admin(sender: &signer, new_admin: address) acquires SwapInfo {
