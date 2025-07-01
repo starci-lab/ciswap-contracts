@@ -167,10 +167,10 @@ module ciswap::swap {
         store_protocol_fee_y: Object<FungibleStore>, // Accumulated protocol fees in token Y
         store_protocol_fee_debt_x: Object<FungibleStore>, // Accumulated protocol fees in virtual X
         store_protocol_fee_debt_y: Object<FungibleStore>, // Accumulated protocol fees in virtual Y
-        global_x_fee_growth: u128, // Global fee growth for the pair (used for fee distribution)
-        global_y_fee_growth: u128, // Global fee growth for the pair (used for fee distribution)
-        global_debt_x_fee_growth: u128, // Global fee growth for virtual X (used for fee distribution)
-        global_debt_y_fee_growth: u128, // Global fee growth for virtual Y (used for fee distribution)
+        global_x_fee_growth_x128: u128, // Global fee growth for the pair (used for fee distribution)
+        global_y_fee_growth_x128: u128, // Global fee growth for the pair (used for fee distribution)
+        global_debt_x_fee_growth_x128: u128, // Global fee growth for virtual X (used for fee distribution)
+        global_debt_y_fee_growth_x128: u128, // Global fee growth for virtual Y (used for fee distribution)
         store_debt_x: Object<FungibleStore>, // Pool's current balance of virtual X
         store_debt_y: Object<FungibleStore>, // Pool's current balance of virtual Y
     }
@@ -561,10 +561,10 @@ module ciswap::swap {
                     &resource_signer,
                     address_debt_y
                 ), // Store for accumulated protocol fees in virtual Y
-                global_x_fee_growth: 0, // Global fee growth for the pair (used for fee distribution)
-                global_y_fee_growth: 0, // Global fee growth for the pair (used for
-                global_debt_y_fee_growth: 0, // Global fee growth for virtual Y (
-                global_debt_x_fee_growth: 0, // Global fee growth for virtual X (
+                global_x_fee_growth_x128: 0, // Global fee growth for the pair (used for fee distribution)
+                global_y_fee_growth_x128: 0, // Global fee growth for the pair (used for
+                global_debt_y_fee_growth_x128: 0, // Global fee growth for virtual Y (
+                global_debt_x_fee_growth_x128: 0, // Global fee growth for virtual X (
             }
         );  
         
@@ -1025,10 +1025,10 @@ module ciswap::swap {
         assert!(k_sqrt_diff > 0, ERR_INVALID_AMOUNT);
         
         // Update fee growth using scaled arithmetic to maintain precision
-        metadata.global_x_fee_growth += (((fee_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
-        metadata.global_y_fee_growth += (((fee_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
-        metadata.global_debt_x_fee_growth += (((fee_debt_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
-        metadata.global_debt_y_fee_growth += (((fee_debt_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+        metadata.global_x_fee_growth_x128 += (((fee_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+        metadata.global_y_fee_growth_x128 += (((fee_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+        metadata.global_debt_x_fee_growth_x128 += (((fee_debt_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+        metadata.global_debt_y_fee_growth_x128 += (((fee_debt_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
     }
 
     /// Swaps tokens in the pool, transferring output to the recipient and emitting an event
@@ -1384,10 +1384,10 @@ module ciswap::swap {
         // 1. Access position metadata
         let (
             k_sqrt_added, // k_sqrt_added
-            fee_growth_inside_x, // fee_growth_inside_x
-            fee_growth_inside_y, // fee_growth_inside_y
-            fee_growth_inside_debt_x, // fee_growth_inside_debt_x
-            fee_growth_inside_debt_y, // fee_growth_inside_debt_y
+            fee_growth_inside_x_x128, // fee_growth_inside_x_x128
+            fee_growth_inside_y_x128, // fee_growth_inside_y_x128
+            fee_growth_inside_debt_x_x128, // fee_growth_inside_debt_x_x128
+            fee_growth_inside_debt_y_x128, // fee_growth_inside_debt_y_x128
             fee_owed_x, // fee_owed_x
             fee_owed_y, // fee_owed_y
             fee_owed_debt_x, // fee_owed_debt_x
@@ -1402,10 +1402,10 @@ module ciswap::swap {
         let metadata = get_metadata_mut(pool_id, metadatas);
         
         // 3. Calculate fee delta
-        let fee_delta_x = metadata.global_x_fee_growth - fee_growth_inside_x;
-        let fee_delta_y = metadata.global_y_fee_growth - fee_growth_inside_y;
-        let fee_delta_debt_x = metadata.global_debt_x_fee_growth - fee_growth_inside_debt_x;
-        let fee_delta_debt_y = metadata.global_debt_y_fee_growth - fee_growth_inside_debt_y;
+        let fee_delta_x = metadata.global_x_fee_growth_x128 - fee_growth_inside_x_x128;
+        let fee_delta_y = metadata.global_y_fee_growth_x128 - fee_growth_inside_y_x128;
+        let fee_delta_debt_x = metadata.global_debt_x_fee_growth_x128 - fee_growth_inside_debt_x_x128;
+        let fee_delta_debt_y = metadata.global_debt_y_fee_growth_x128 - fee_growth_inside_debt_y_x128;
 
         // 4. Calculate actual fee amounts based on liquidity share
         let liquidity_share = k_sqrt_added;
@@ -1421,10 +1421,10 @@ module ciswap::swap {
             signer::address_of(sender),
             pool_id,
             nft_id,
-            metadata.global_x_fee_growth,
-            metadata.global_y_fee_growth,
-            metadata.global_debt_x_fee_growth,
-            metadata.global_debt_y_fee_growth
+            metadata.global_x_fee_growth_x128,
+            metadata.global_y_fee_growth_x128,
+            metadata.global_debt_x_fee_growth_x128,
+            metadata.global_debt_y_fee_growth_x128
         );
         // Reset the fee growth inside to zero
         position::reset_position_fee_owed(
