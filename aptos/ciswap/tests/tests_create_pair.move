@@ -35,7 +35,6 @@ module ciswap::tests_create_pair {
         cetus_amount: u64, // 2 CETUS
         usdc_amount: u64 // 1 USDC
     ) {
-        account::create_account_for_test(signer::address_of(user));
         tests_assets::register_and_mint_aptos_coin(
             user, 
             100_000_000 // Mint 1 APT

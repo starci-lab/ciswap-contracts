@@ -154,6 +154,13 @@ module ciswap::fa_utils {
         object::object_address(&metadata)
     }
 
+    public fun deposit(
+        recipient_addr: address,
+        fa: FungibleAsset
+    ) {
+        primary_fungible_store::deposit(recipient_addr, fa)
+    }
+
     // ─────────────── Test Harness ───────────────
     /// Testing-only initializer for the FA module.
     #[test_only]

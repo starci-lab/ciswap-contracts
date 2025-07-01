@@ -153,11 +153,17 @@ module ciswap::swap {
     struct TokenPairMetadata has key, store {
         creator: address, // Address of the user who created the pair (admin for this pair)
         k_sqrt_last: u64, // Last recorded sqrt(K) for fee calculation (used for fee distribution)
+        k_sqrt_locked: u64, // Last recorded sqrt(K) for locked liquidity
         store_x: Object<FungibleStore>, // Pool's current balance of token X
         store_y: Object<FungibleStore>, // Pool's current balance of token Y
         store_fee_x: Object<FungibleStore>, // Accumulated fees in token X
         store_fee_y: Object<FungibleStore>, // Accumulated fees in token Y
-        global_k_sqrt_fee_growth: u64, // Global fee growth for the pair (used for fee distribution)
+        store_fee_debt_x: Object<FungibleStore>, // Accumulated fees in virtual X
+        store_fee_debt_y: Object<FungibleStore>, // Accumulated fees in virtual Y
+        global_x_fee_growth: u128, // Global fee growth for the pair (used for fee distribution)
+        global_y_fee_growth: u128, // Global fee growth for the pair (used for fee distribution)
+        global_debt_x_fee_growth: u128, // Global fee growth for virtual X (used for fee distribution)
+        global_debt_y_fee_growth: u128, // Global fee growth for virtual Y (used for fee distribution)
         store_debt_x: Object<FungibleStore>, // Pool's current balance of virtual X
         store_debt_y: Object<FungibleStore>, // Pool's current balance of virtual Y
     }
@@ -216,19 +222,21 @@ module ciswap::swap {
     // Error Codes
     // ------------------------------------------------------------------------
     // Error codes for various failure conditions
-    const ERROR_ALREADY_INITIALIZED: u64 = 1; // Pair already initialized
-    const ERROR_NOT_ADMIN: u64 = 2; // Not admin
-    const ERROR_REDEMPTION_NOT_ENOUGH: u64 = 3; // Not enough tokens to redeem
-    const ERROR_TOKEN_A_NOT_ZERO: u64 = 4; // Token A balance not zero
-    const ERROR_TOKEN_B_NOT_ZERO: u64 = 5; // Token B balance not zero
-    const ERROR_TOKEN_NOT_SORTED: u64 = 6; // Token types not sorted
-    const ERROR_INSUFFICIENT_AMOUNT: u64 = 7; // Insufficient amount
-    const ERROR_INVALID_AMOUNT: u64 = 8; // Invalid amount
-    const ERROR_INSUFFICIENT_LIQUIDITY: u64 = 9; // Insufficient liquidity
-    const ERROR_INSUFFICIENT_INPUT_AMOUNT: u64 = 10; // Insufficient input amount
-    const ERROR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 11; // Insufficient output amount
-    const ERROR_POOL_NOT_CREATED: u64 = 12; // Pair not created
-    const ERROR_POOL_CREATED: u64 = 13; // Pair already created
+    const ERR_ALREADY_INITIALIZED: u64 = 1; // Pair already initialized
+    const ERR_NOT_ADMIN: u64 = 2; // Not admin
+    const ERR_REDEMPTION_NOT_ENOUGH: u64 = 3; // Not enough tokens to redeem
+    const ERR_TOKEN_A_NOT_ZERO: u64 = 4; // Token A balance not zero
+    const ERR_TOKEN_B_NOT_ZERO: u64 = 5; // Token B balance not zero
+    const ERR_TOKEN_NOT_SORTED: u64 = 6; // Token types not sorted
+    const ERR_INSUFFICIENT_AMOUNT: u64 = 7; // Insufficient amount
+    const ERR_INVALID_AMOUNT: u64 = 8; // Invalid amount
+    const ERR_INSUFFICIENT_LIQUIDITY: u64 = 9; // Insufficient liquidity
+    const ERR_INSUFFICIENT_INPUT_AMOUNT: u64 = 10; // Insufficient input amount
+    const ERR_INSUFFICIENT_OUTPUT_AMOUNT: u64 = 11; // Insufficient output amount
+    const ERR_INSUFFICIENT_DEBT_OUTPUT_AMOUNT: u64 = 11; // Insufficient debt output amount
+    const ERR_POOL_NOT_CREATED: u64 = 12; // Pair not created
+    const ERR_POOL_CREATED: u64 = 13; // Pair already created
+    const ERR_INSUFFICIENT_INPUT_BALANCE: u64 = 14; // Insufficient input balance
 
     // ------------------------------------------------------------------------
     // Events
@@ -502,7 +510,8 @@ module ciswap::swap {
             pool_id, // Pool id is the address of the pool
             TokenPairMetadata {  
                 creator: sender_addr, // Address of the user who created the pair (admin for this pair)
-                k_sqrt_last: locked_liquidity,
+                k_sqrt_locked: locked_liquidity,
+                k_sqrt_last: locked_liquidity, // Last recorded sqrt(K) for fee calculation (used for fee distribution)
                 store_fee_x: fa_utils::create_store(
                     &resource_signer,
                     address_x
@@ -521,7 +530,18 @@ module ciswap::swap {
                 ), // Store for accumulated fees in token X
                 store_debt_x, // Store for accumulated fees in token X
                 store_debt_y, // Store for accumulated fees in token X
-                global_k_sqrt_fee_growth: 0, 
+                store_fee_debt_x: fa_utils::create_store(
+                    &resource_signer,
+                    address_debt_y
+                ), // Store for accumulated fees in virtual X
+                store_fee_debt_y: fa_utils::create_store(
+                    &resource_signer,
+                    address_debt_y
+                ), // Store for accumulated fees in virtual Y
+                global_x_fee_growth: 0, // Global fee growth for the pair (used for fee distribution)
+                global_y_fee_growth: 0, // Global fee growth for the pair (used for
+                global_debt_y_fee_growth: 0, // Global fee growth for virtual Y (
+                global_debt_x_fee_growth: 0, // Global fee growth for virtual X (
             }
         );  
         
@@ -614,24 +634,24 @@ module ciswap::swap {
 
 //     /// Extracts a specified amount of X from the pool's balance (internal use)
 //     fun extract_x<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<X> {
-//         assert!(coin::value<X>(&metadata.balance_x) > amount, ERROR_INSUFFICIENT_AMOUNT);
+//         assert!(coin::value<X>(&metadata.balance_x) > amount, ERR_INSUFFICIENT_AMOUNT);
 //         coin::extract(&mut metadata.balance_x, amount)
 //     }
 
 //     /// Extracts a specified amount of Y from the pool's balance (internal use)
 //     fun extract_y<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<Y> {
-//         assert!(coin::value<Y>(&metadata.balance_y) > amount, ERROR_INSUFFICIENT_AMOUNT);
+//         assert!(coin::value<Y>(&metadata.balance_y) > amount, ERR_INSUFFICIENT_AMOUNT);
 //         coin::extract(&mut metadata.balance_y, amount)
 //     }
 
 //     /// Extracts a specified amount of virtual X from the pool's balance (internal use)
 //     fun extract_debt_x<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<VirtualX<X, Y>> {
-//         assert!(coin::value<VirtualX<X, Y>>(&metadata.balance_debt_x) > amount, ERROR_INSUFFICIENT_AMOUNT);
+//         assert!(coin::value<VirtualX<X, Y>>(&metadata.balance_debt_x) > amount, ERR_INSUFFICIENT_AMOUNT);
 //         coin::extract(&mut metadata.balance_debt_x, amount)
 //     }   
 //     /// Extracts a specified amount of virtual Y from the pool's balance (internal use)
 //     fun extract_debt_y<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<VirtualX<Y, X>> {
-//         assert!(coin::value<VirtualX<Y, X>>(&metadata.balance_debt_y) > amount, ERROR_INSUFFICIENT_AMOUNT);
+//         assert!(coin::value<VirtualX<Y, X>>(&metadata.balance_debt_y) > amount, ERR_INSUFFICIENT_AMOUNT);
 //         coin::extract(&mut metadata.balance_debt_y, amount)
 //     }
 
@@ -659,8 +679,8 @@ module ciswap::swap {
 //         let redeemed_amount_x = pool_math_utils::get_redeemed_amount(amount_debt_x);
 //         let redeemed_amount_y = pool_math_utils::get_redeemed_amount(amount_debt_y);
 //         // Ensure the pool has enough real tokens to redeem
-//         assert!(coin::value(&metadata.balance_debt_x) >= redeemed_amount_x, ERROR_REDEMPTION_NOT_ENOUGH);
-//         assert!(coin::value(&metadata.balance_debt_y) >= redeemed_amount_y, ERROR_REDEMPTION_NOT_ENOUGH);
+//         assert!(coin::value(&metadata.balance_debt_x) >= redeemed_amount_x, ERR_REDEMPTION_NOT_ENOUGH);
+//         assert!(coin::value(&metadata.balance_debt_y) >= redeemed_amount_y, ERR_REDEMPTION_NOT_ENOUGH);
 //         // Burn the virtual tokens
 //         coin::burn<VirtualX<X, Y>>(coin_debt_x, &mut metadata.burn_debt_x_cap);
 //         coin::burn<VirtualX<Y, X>>(coin_debt_y, &mut metadata.burn_debt_y_cap);
@@ -858,13 +878,13 @@ module ciswap::swap {
                     reserve_debt_y,
                     reserve_debt_x
                 );
-                assert!(amount_x_optimal <= amount_x, ERROR_INVALID_AMOUNT);
+                assert!(amount_x_optimal <= amount_x, ERR_INVALID_AMOUNT);
                 (amount_x_optimal, amount_y)
             }
         };
 
-        assert!(desired_x <= amount_x, ERROR_INSUFFICIENT_AMOUNT);
-        assert!(desired_y <= amount_y, ERROR_INSUFFICIENT_AMOUNT);
+        assert!(desired_x <= amount_x, ERR_INSUFFICIENT_AMOUNT);
+        assert!(desired_y <= amount_y, ERR_INSUFFICIENT_AMOUNT);
 
         // Extract any excess tokens and deposit the optimal amounts
         let desired_x_fa = fa_utils::withdraw_fa_from_address(
@@ -889,16 +909,16 @@ module ciswap::swap {
             desired_y_fa
         );
 
-        let new_reserve_x = reserve_x + desired_x;
-        let new_reserve_y = reserve_y + desired_y;
+        let updated_reserve_x = reserve_x + desired_x;
+        let updated_reserve_y = reserve_y + desired_y;
 
-        let new_k_sqrt = pool_math_utils::get_k_sqrt(
-            new_reserve_x, 
-            new_reserve_y, 
+        let updated_k_sqrt = pool_math_utils::get_k_sqrt(
+            updated_reserve_x, 
+            updated_reserve_y, 
             reserve_debt_x,
             reserve_debt_y
         );
-        let k_diff = new_k_sqrt - metadata.k_sqrt_last;
+        let k_diff = updated_k_sqrt - metadata.k_sqrt_last;
 
         // create a NFT LP representing the liquidity added 
         position::create_then_transfer_or_update_lp_nft(
@@ -907,11 +927,11 @@ module ciswap::swap {
             k_diff
         );
         // update the metadata
-        metadata.k_sqrt_last = new_k_sqrt;    
+        metadata.k_sqrt_last = updated_k_sqrt;    
         // update the pool's reserves
         update(
-            new_reserve_x, 
-            new_reserve_y, 
+            updated_reserve_x, 
+            updated_reserve_y, 
             reserve_debt_x, 
             reserve_debt_y,
             reserve
@@ -930,7 +950,7 @@ module ciswap::swap {
 //     public entry fun set_admin(sender: &signer, new_admin: address) acquires SwapInfo {
 //         let sender_addr = signer::address_of(sender);
 //         let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
-//         assert!(sender_addr == swap_info.admin, ERROR_NOT_ADMIN);
+//         assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN);
 //         swap_info.admin = new_admin;
 //     }
 
@@ -942,7 +962,7 @@ module ciswap::swap {
 //     ) acquires SwapInfo {
 //         let sender_addr = signer::address_of(sender);
 //         let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
-//         assert!(sender_addr == swap_info.admin, ERROR_NOT_ADMIN);
+//         assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN);
 //         let resource_signer = account::create_signer_with_capability(&swap_info.signer_cap);
 //         code::publish_package_txn(&resource_signer, metadata_serialized, code);
 //     }
@@ -963,138 +983,250 @@ module ciswap::swap {
         reserve.block_timestamp_last = block_timestamp;
     }
 
-//     /// Swaps tokens in the pool, transferring output to the recipient and emitting an event
-//     /// x_for_y: true means swapping X for Y, false means swapping Y for X
-//     /// limit_amount_calculated: slippage protection (max output allowed)
-//     public fun swap<X, Y>(
-//         sender: &signer,
-//         pool_index: u64,
-//         amount_in: u64,
-//         x_for_y: bool,
-//         recipient_addr: address,
-//         limit_amount_calculated: u64
-//     ): (
-//         u64, u64
-//     ) acquires PairEventHolder, TokenPairMetadatas, TokenPairReserves {
-//         assert!(amount_in > 0, ERROR_INSUFFICIENT_INPUT_AMOUNT);
-//         let reserves = borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
-//         let reserve =  get_reserve_mut<X, Y>(pool_index, reserves);
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata_mut<X, Y>(pool_index, metadatas);
-//         // Calculate output amounts using pool math
-//         let (
-//             amount_out, 
-//             amount_debt_out
-//         ) = pool_math_utils::get_tokens_amount_out(
-//             amount_in, 
-//             x_for_y, 
-//             reserve.reserve_x, 
-//             reserve.reserve_y, 
-//             reserve.reserve_debt_x, 
-//             reserve.reserve_debt_y
-//         );
+    const SCALING_FACTOR: u128 = 18446744073709551616; // 2^64
+    fun update_fees_global(
+        fee_x: u64, 
+        fee_y: u64,
+        fee_debt_x: u64,
+        fee_debt_y: u64,
+        k_sqrt_diff: u64,
+        metadata: &mut TokenPairMetadata
+    ) {
+        metadata.global_x_fee_growth += (((fee_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+        metadata.global_y_fee_growth += (((fee_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+        metadata.global_debt_x_fee_growth += (((fee_debt_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+        metadata.global_debt_y_fee_growth += (((fee_debt_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+    }
 
-//         // Get the actual reserves (real tokens only)
-//         let (actual_x, actual_y) = pool_math_utils::get_actual_x_y(
-//             reserve.reserve_x, 
-//             reserve.reserve_y, 
-//             reserve.reserve_debt_x, 
-//             reserve.reserve_debt_y
-//         );
-//         // Handle swap direction
-//         if (x_for_y) {
-//             // Swapping X for Y
-//             let coin = coin::withdraw<X>(sender, amount_in);
-//             coin::merge(&mut metadata.balance_x, coin);
-//             assert!(amount_out <= actual_y, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
-//             let coins_y_out = coin::zero<Y>();
-//             let debt_coins_y_out = coin::zero<VirtualX<Y, X>>();
-//             coin::merge(
-//                 &mut coins_y_out, 
-//                 extract_y(
-//                     amount_out, 
-//                     metadata
-//                 )
-//             );
-//             coin::merge(
-//                 &mut debt_coins_y_out, 
-//                 extract_debt_y(
-//                     amount_debt_out, 
-//                     metadata
-//                 )
-//             );
-//             assert!(amount_out <= limit_amount_calculated, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
-//             reserve.reserve_y -= amount_out;
-//             reserve.reserve_debt_y -= amount_debt_out;
-//             reserve.reserve_x += amount_in;
-//             coin::deposit(recipient_addr, coins_y_out);
-//             coin::deposit(recipient_addr, debt_coins_y_out);
-//         } else {
-//             // Swapping Y for X
-//             let coin = coin::withdraw<Y>(sender, amount_in);
-//             coin::merge(&mut metadata.balance_y, coin);
-//             assert!(amount_out <= actual_x, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
-//             let coins_x_out = coin::zero<X>();
-//             let debt_coins_x_out = coin::zero<VirtualX<X, Y>>();
-//             coin::merge(
-//                 &mut coins_x_out, 
-//                 extract_x(
-//                     amount_out, 
-//                     metadata
-//                 )
-//             );
-//             assert!(amount_out <= limit_amount_calculated, ERROR_INSUFFICIENT_OUTPUT_AMOUNT);
-//             coin::merge(
-//                 &mut debt_coins_x_out, 
-//                 extract_debt_x(
-//                     amount_debt_out, 
-//                     metadata
-//                 )
-//             );
-//             reserve.reserve_x -= amount_out;
-//             reserve.reserve_debt_x -= amount_debt_out;
-//             reserve.reserve_y += amount_in;
-//             coin::deposit(recipient_addr, coins_x_out);
-//             coin::deposit(recipient_addr, debt_coins_x_out);
-//         };
+    /// Swaps tokens in the pool, transferring output to the recipient and emitting an event
+    /// x_for_y: true means swapping X for Y, false means swapping Y for X
+    /// limit_amount_calculated: slippage protection (max output allowed)
+    public fun swap(
+        sender: &signer,
+        pool_id: u64,
+        amount_in: u64,
+        x_for_y: bool,
+        recipient_addr: address,
+        limit_amount_calculated: u64,
+        limit_debt_amount_calculated: u64
+    ): (u64, u64) acquires PairEventHolder, TokenPairMetadatas, TokenPairReserves {
+        // Input validation
+        assert!(amount_in > 0, ERR_INSUFFICIENT_INPUT_AMOUNT);
+        let resource_signer = package_manager::get_resource_signer();
 
-//         // Emit the swap event
-//         emit_swap_event<X, Y>(
-//             signer::address_of(sender),
-//             pool_index,
-//             amount_in,
-//             x_for_y,
-//             amount_out,
-//             amount_debt_out,
-//             recipient_addr
-//         );
-//         (amount_out, amount_debt_out)
-//     }
+        let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
+        let reserve = get_reserve_mut(pool_id, reserves);
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata_mut(pool_id, metadatas);
+        
+        // Calculate output amounts
+        let (
+            amount_out, 
+            amount_debt_out,
+            amount_fee_out,
+            amount_debt_fee_out,
+            k_sqrt_diff
+        ) = pool_math_utils::get_amount_out(
+            amount_in, 
+            x_for_y, 
+            reserve.reserve_x, 
+            reserve.reserve_y, 
+            reserve.reserve_debt_x, 
+            reserve.reserve_debt_y
+        );
+        
+        // Output validation
+        assert!(amount_out >= limit_amount_calculated, ERR_INSUFFICIENT_OUTPUT_AMOUNT);
+        assert!(amount_debt_out >= limit_debt_amount_calculated, ERR_INSUFFICIENT_DEBT_OUTPUT_AMOUNT);
+        
+        // Get token addresses
+        let address_fa_x = fa_utils::get_address_from_store(metadata.store_x);
+        let address_fa_y = fa_utils::get_address_from_store(metadata.store_y);
+        let address_fa_debt_x = fa_utils::get_address_from_store(metadata.store_debt_x);
+        let address_fa_debt_y = fa_utils::get_address_from_store(metadata.store_debt_y);
 
-//     /// Emits a swap event for the given parameters
-//     public fun emit_swap_event<X, Y>(
-//         sender_addr: address,
-//         pool_index: u64,
-//         amount_in: u64,
-//         x_for_y: bool,
-//         amount_out: u64,
-//         amount_debt_out: u64,
-//         recipient_addr: address
-//     ) acquires PairEventHolder {
-//         let pair_event_holder = borrow_global_mut<PairEventHolder<X, Y>>(RESOURCE_ACCOUNT);
-//         event::emit_event<SwapEvent<X, Y>>(
-//             &mut pair_event_holder.swap,
-//             SwapEvent<X, Y> {
-//                 sender_addr,
-//                 pool_index,
-//                 amount_in,
-//                 x_for_y,
-//                 amount_out,
-//                 amount_debt_out,
-//                 recipient_addr
-//             }
-//         );
-//     }
+        if (x_for_y) {
+            // ====== SWAPPING X FOR Y ======
+            // Verify sender has enough X tokens
+            assert!(
+                fa_utils::balance_of(signer::address_of(sender), address_fa_x) >= amount_in,
+                ERR_INSUFFICIENT_INPUT_BALANCE
+            );
+            // Transfer input tokens
+            let fa_x_in = fa_utils::withdraw_fa_from_address(
+                sender,
+                address_fa_x,
+                amount_in
+            );
+            fungible_asset::deposit(metadata.store_x, fa_x_in);
+            // Process fees (deducted from output in get_amount_out)
+            // Simply move the fee amounts to the fee stores
+            let fa_y_out = fungible_asset::withdraw(
+                &resource_signer, 
+                metadata.store_y,
+                amount_out
+            );
+            let fa_debt_y_out = fungible_asset::withdraw(
+                &resource_signer, 
+                metadata.store_debt_y,
+                amount_debt_out
+            );
+            let fa_y_fee_out = fungible_asset::withdraw(
+                &resource_signer,
+                metadata.store_y,
+                amount_fee_out
+            );
+            let fa_debt_y_fee_out = fungible_asset::withdraw(
+                &resource_signer,
+                metadata.store_debt_y,
+                amount_debt_fee_out
+            );
+            // Deposit the fee amounts into the fee stores
+            fungible_asset::deposit(
+                metadata.store_fee_y,
+                fa_y_fee_out
+            );
+            fungible_asset::deposit(
+                metadata.store_fee_debt_y,
+                fa_debt_y_fee_out
+            );
+            // Deposit the output amounts into the recipient's address
+            fa_utils::deposit(
+                recipient_addr, 
+                fa_y_out
+            );
+            fa_utils::deposit(
+                recipient_addr, 
+                fa_debt_y_out
+            );
+            // Update fee tracking
+            update_fees_global(
+                0, 
+                0,
+                amount_fee_out,
+                amount_debt_fee_out,
+                k_sqrt_diff,
+                metadata
+            ); 
+            // Update reserves
+            update(
+                reserve.reserve_x + amount_in,
+                reserve.reserve_y - amount_out,
+                reserve.reserve_debt_x,
+                reserve.reserve_debt_y - amount_debt_out,
+                reserve
+            );
+        } else {
+            // ====== SWAPPING Y FOR X ====== 
+            // Verify sender has enough Y tokens
+            assert!(
+                fa_utils::balance_of(signer::address_of(sender), address_fa_y) >= amount_in,
+                ERR_INSUFFICIENT_INPUT_BALANCE
+            );
+            // Transfer input tokens
+            let fa_y_in = fa_utils::withdraw_fa_from_address(
+                sender,
+                address_fa_y,
+                amount_in
+            );
+            fungible_asset::deposit(metadata.store_y, fa_y_in);
+            // Process fees (deducted from output in get_amount_out)
+            // Simply move the fee amounts to the fee stores
+            let fa_x_out = fungible_asset::withdraw(
+                &resource_signer, 
+                metadata.store_x,
+                amount_out
+            );
+            let fa_debt_x_out = fungible_asset::withdraw(
+                &resource_signer, 
+                metadata.store_debt_x,
+                amount_debt_out
+            );
+            let fa_x_fee_out = fungible_asset::withdraw(
+                &resource_signer,
+                metadata.store_x,
+                amount_fee_out
+            );
+            let fa_debt_x_fee_out = fungible_asset::withdraw(
+                &resource_signer,
+                metadata.store_debt_x,
+                amount_debt_fee_out
+            );
+            // Deposit the fee amounts into the fee stores
+            fungible_asset::deposit(
+                metadata.store_fee_x,
+                fa_x_fee_out
+            );
+            fungible_asset::deposit(
+                metadata.store_fee_debt_x,
+                fa_debt_x_fee_out
+            );
+            // Deposit the output amounts into the recipient's address
+            fa_utils::deposit(
+                recipient_addr,
+                fa_x_out
+            );
+            fa_utils::deposit(
+                recipient_addr,
+                fa_debt_x_out
+            );
+            // Update fee tracking
+            update_fees_global(
+                amount_fee_out,
+                amount_debt_fee_out,
+                0, 
+                0,
+                k_sqrt_diff,
+                metadata
+            );
+            // Update reserves
+            update(
+                reserve.reserve_x - amount_out,
+                reserve.reserve_y + amount_in,
+                reserve.reserve_debt_x - amount_debt_out,
+                reserve.reserve_debt_y,
+                reserve
+            );
+        };
+
+        // Emit event
+        emit_swap_event(
+            signer::address_of(sender),
+            pool_id,
+            amount_in,
+            x_for_y,
+            amount_out,
+            amount_debt_out,
+            recipient_addr
+        );
+    
+        (amount_out, amount_debt_out)
+    }
+
+    /// Emits a swap event for the given parameters
+    public fun emit_swap_event(
+        sender_addr: address,
+        pool_id: u64,
+        amount_in: u64,
+        x_for_y: bool,
+        amount_out: u64,
+        amount_debt_out: u64,
+        recipient_addr: address
+    ) acquires PairEventHolder {
+        let pair_event_holder = borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT);
+        event::emit_event<SwapEvent>(
+            &mut pair_event_holder.swap,
+            SwapEvent {
+                sender_addr,
+                pool_id,
+                amount_in,
+                x_for_y,
+                amount_out,
+                amount_debt_out,
+                recipient_addr
+            }
+        );
+    }
 
 //     /// Returns the output amounts for a given input and direction, without executing the swap
 //     public fun get_amount_out<X, Y>(
@@ -1145,7 +1277,7 @@ module ciswap::swap {
         let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
         assert!(
             swap_info.next_pool_id > pool_id,
-            ERROR_POOL_NOT_CREATED
+            ERR_POOL_NOT_CREATED
         );
     }
 
@@ -1154,7 +1286,7 @@ module ciswap::swap {
         let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
         assert!(
             swap_info.next_pool_id <= pool_id,
-            ERROR_POOL_CREATED
+            ERR_POOL_CREATED
         );
     }
 

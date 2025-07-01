@@ -10,32 +10,32 @@ module ciswap::pool_math_utils {
     const FEE: u64 = 3_000; // 0.3% trading fee
     /// Portion of fee that goes to LPs (10%)
     /// The rest is protocol fee.
-    const LP_FEE: u64 = 10_000; // 10% of the fee goes to LPs
+    const LP_FEE: u64 = 100_000; // 10% of the fee goes to LPs
 
     // error codes
     const ERROR_INSUFFICIENT_AMOUNT: u64 = 0;
 
     /// Calculate the locked liquidity using virtual reserves.
-    /// This is typically the geometric mean of virtual_x and virtual_y, scaled by VIRTUAL_MULTIPLIER.
+    /// This is typically the geometric mean of debt_x and debt_y, scaled by VIRTUAL_MULTIPLIER.
     ///
     /// # Arguments
-    /// - `virtual_x`: Virtual reserve of X
-    /// - `virtual_y`: Virtual reserve of Y
+    /// - `debt_x`: Virtual reserve of X
+    /// - `debt_y`: Virtual reserve of Y
     ///
     /// # Returns
     /// - `u64`: Amount of locked liquidity
     ///
     /// # Details
-    /// The geometric mean ensures that both virtual_x and virtual_y must be nonzero for any liquidity to be locked.
+    /// The geometric mean ensures that both debt_x and debt_y must be nonzero for any liquidity to be locked.
     /// The multiplier amplifies the effect of virtual reserves, making the pool more liquid than it actually is.
     public fun calculate_locked_liquidity(
-        virtual_x: u64,
-        virtual_y: u64,
+        debt_x: u64,
+        debt_y: u64,
     ): u64 {
         // Ensure both virtual reserves are positive
-        assert!(virtual_x > 0 && virtual_y > 0, 0);
+        assert!(debt_x > 0 && debt_y > 0, 0);
         // Calculate the product (as u128 to avoid overflow)
-        let product: u128 = (virtual_x as u128) * (virtual_y as u128);
+        let product: u128 = (debt_x as u128) * (debt_y as u128);
         // Take the square root (geometric mean)
         let sqrt = math128::sqrt(product) as u64;
         // Scale by the virtual multiplier (amplification)
@@ -53,11 +53,11 @@ module ciswap::pool_math_utils {
     public fun get_actual_x_y(
         reserve_x: u64,
         reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
+        reserve_debt_x: u64,
+        reserve_debt_y: u64,
     ): (u64, u64) {  
-        let actual_x = reserve_x + reserve_virtual_x;
-        let actual_y = reserve_y + reserve_virtual_y;
+        let actual_x = reserve_x + reserve_debt_x;
+        let actual_y = reserve_y + reserve_debt_y;
         // Both must be positive for the pool to function
         assert!(actual_x > 0 && actual_y > 0, 0);  
         (actual_x, actual_y)
@@ -70,12 +70,12 @@ module ciswap::pool_math_utils {
     public fun get_k(
         reserve_x: u64,
         reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
+        reserve_debt_x: u64,
+        reserve_debt_y: u64,
     ): u128 {
         // Virtual reserves must be positive
-        assert!(reserve_virtual_x > 0 && reserve_virtual_y > 0, 0);
-        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_virtual_x, reserve_virtual_y);
+        assert!(reserve_debt_x > 0 && reserve_debt_y > 0, 0);
+        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_debt_x, reserve_debt_y);
         let k_last = (actual_x as u128) * (actual_y as u128);
         k_last
     }
@@ -87,10 +87,10 @@ module ciswap::pool_math_utils {
     public fun get_k_sqrt(
         reserve_x: u64,
         reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
+        reserve_debt_x: u64,
+        reserve_debt_y: u64,
     ): u64 {
-        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_virtual_x, reserve_virtual_y);
+        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_debt_x, reserve_debt_y);
         let k_sqrt = math128::sqrt((actual_x as u128) * (actual_y as u128));
         (k_sqrt as u64)
     }
@@ -101,7 +101,7 @@ module ciswap::pool_math_utils {
     /// - `amount_in`: Amount of input token
     /// - `x_for_y`: Direction of swap (true if X for Y)
     /// - `reserve_x`, `reserve_y`: Real reserves
-    /// - `reserve_virtual_x`, `reserve_virtual_y`: Virtual reserves
+    /// - `reserve_debt_x`, `reserve_debt_y`: Virtual reserves
     ///
     /// # Returns
     /// - `u64`: Output amount after fee
@@ -112,22 +112,22 @@ module ciswap::pool_math_utils {
     /// After a swap, the new reserves must satisfy the invariant.
     /// The output is calculated by solving for the new reserve after adding amount_in, then subtracting to get amount_out.
     /// Fee is applied to the output.
-    public fun get_amount_out(
+    public fun get_amount_out_raw(
         amount_in: u64,
         x_for_y: bool,
         reserve_x: u64,
         reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
+        reserve_debt_x: u64,
+        reserve_debt_y: u64,
     ): u64 {
         // Input must be positive
         assert!(amount_in > 0, 0);
         // Virtual reserves must be positive
-        assert!(reserve_virtual_x > 0 && reserve_virtual_y > 0, 1);
+        assert!(reserve_debt_x > 0 && reserve_debt_y > 0, 1);
 
         // Calculate actual reserves
-        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_virtual_x, reserve_virtual_y);
-        let k_last = get_k(reserve_x, reserve_y, reserve_virtual_x, reserve_virtual_y);
+        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_debt_x, reserve_debt_y);
+        let k_last = get_k(reserve_x, reserve_y, reserve_debt_x, reserve_debt_y);
         
         // Compute the raw output amount (before fee)
         let amount_out_raw: u128;
@@ -142,8 +142,7 @@ module ciswap::pool_math_utils {
         // Output must be positive
         assert!(amount_out_raw > 0, 2);
         // Apply fee to the output
-        let amount_out: u64 = (amount_out_raw as u64) * (1_000_000 - FEE) / 1_000_000; // apply fee
-        amount_out
+        (amount_out_raw as u64)
     }
 
     /// Returns the actual and virtual output for a swap, handling the case where real reserves are insufficient.
@@ -152,37 +151,82 @@ module ciswap::pool_math_utils {
     /// If the real reserve is not enough to cover the output, the user receives the remainder as virtual tokens.
     ///
     /// # Returns
-    /// - `(u64, u64)`: (real_output, virtual_output)
-    public fun get_tokens_amount_out(
-        amount_in: u64,
-        x_for_y: bool,
-        reserve_x: u64,
-        reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
-    ): (u64, u64) {
-       let amount_out = get_amount_out(
-        amount_in, 
-        x_for_y, 
-        reserve_x, 
-        reserve_y, 
-        reserve_virtual_x, 
-        reserve_virtual_y
-    );
-       if (x_for_y) {
+    /// - `(u64, u64)`: (real_output, debt_output)
+    public fun get_amount_out(
+    amount_in: u64,
+    x_for_y: bool,
+    reserve_x: u64,
+    reserve_y: u64,
+    reserve_debt_x: u64,
+    reserve_debt_y: u64,
+    ): (
+        u64, // real out 
+        u64, // debt out
+        u64, // real fee
+        u64, // debt fee
+        u64, // sqrt_k_diff
+    ) {
+        let total_amount_out = get_amount_out_raw(
+            amount_in, 
+            x_for_y, 
+            reserve_x, 
+            reserve_y, 
+            reserve_debt_x, 
+            reserve_debt_y
+        );
+        
+        let k_sqrt_prev = get_k_sqrt(
+            reserve_x, 
+            reserve_y, 
+            reserve_debt_x, 
+            reserve_debt_y
+        );
+
+        let (amount_out_raw, amount_debt_out_raw) = if (x_for_y) {
             // If not enough real Y, return as much as possible and the rest as virtual
-            if (amount_out > reserve_y) {
-                return (reserve_y, amount_out - reserve_y);
-            };
-            // All output can be covered by real Y
-            return (amount_out, 0);
+            if (total_amount_out > reserve_y) {
+                (reserve_y, total_amount_out - reserve_y)
+            } else {
+                // All output can be covered by real Y
+                (total_amount_out, 0)
+            }
+        } else {
+            // If not enough real X, return as much as possible and the rest as virtual
+            if (total_amount_out > reserve_x) {
+                (reserve_x, total_amount_out - reserve_x)
+            } else {
+                // All output can be covered by real X
+                (total_amount_out, 0)
+            }
         };
-        // If not enough real X, return as much as possible and the rest as virtual
-        if (amount_out > reserve_x) {
-            return (reserve_x, amount_out - reserve_x);
+
+        let amount_fee = (amount_out_raw * FEE) / 1_000_000;
+        let amount_debt_fee = (amount_debt_out_raw * FEE) / 1_000_000;
+        let amount_out = amount_out_raw - amount_fee;
+        let debt_out = amount_debt_out_raw - amount_debt_fee;
+
+        let k_sqrt_after = if (x_for_y) {
+            get_k_sqrt(
+                reserve_x + amount_in, 
+                reserve_y - amount_out, 
+                reserve_debt_x, 
+                reserve_debt_y - debt_out
+            )
+        } else {
+            get_k_sqrt(
+                reserve_x - amount_out, 
+                reserve_y + amount_in, 
+                reserve_debt_x - debt_out, 
+                reserve_debt_y
+            )
         };
-        // All output can be covered by real X
-        (amount_out, 0)
+        (
+            amount_out,
+            debt_out,
+            amount_fee,
+            amount_debt_fee,
+            k_sqrt_after - k_sqrt_prev
+        )
     }
 
     /// Calculates the input amount required for a desired output, using the pool's invariant and fee.
@@ -191,7 +235,7 @@ module ciswap::pool_math_utils {
     /// - `amount_out`: Desired output amount
     /// - `x_for_y`: Direction of swap (true if X for Y)
     /// - `reserve_x`, `reserve_y`: Real reserves
-    /// - `reserve_virtual_x`, `reserve_virtual_y`: Virtual reserves
+    /// - `reserve_debt_x`, `reserve_debt_y`: Virtual reserves
     ///
     /// # Returns
     /// - `u64`: Required input amount
@@ -203,17 +247,17 @@ module ciswap::pool_math_utils {
         x_for_y: bool,
         reserve_x: u64,
         reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
+        reserve_debt_x: u64,
+        reserve_debt_y: u64,
     ): u64 {
         // Output must be positive
         assert!(amount_out > 0, 0);
         // Virtual reserves must be positive
-        assert!(reserve_virtual_x > 0 && reserve_virtual_y > 0, 1);
+        assert!(reserve_debt_x > 0 && reserve_debt_y > 0, 1);
 
         // Calculate actual reserves
-        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_virtual_x, reserve_virtual_y);
-        let k_last = get_k(reserve_x, reserve_y, reserve_virtual_x, reserve_virtual_y);
+        let (actual_x, actual_y) = get_actual_x_y(reserve_x, reserve_y, reserve_debt_x, reserve_debt_y);
+        let k_last = get_k(reserve_x, reserve_y, reserve_debt_x, reserve_debt_y);
 
         // Compute the raw input amount (before fee)
         let amount_in_raw: u128;
@@ -237,7 +281,7 @@ module ciswap::pool_math_utils {
     /// # Arguments
     /// - `amount_x`: Amount of token X
     /// - `reserve_x`, `reserve_y`: Real reserves
-    /// - `reserve_virtual_x`, `reserve_virtual_y`: Virtual reserves
+    /// - `reserve_debt_x`, `reserve_debt_y`: Virtual reserves
     ///
     /// # Returns
     /// - `u64`: Quoted amount of token Y
@@ -248,16 +292,16 @@ module ciswap::pool_math_utils {
         amount_x: u64, 
         reserve_x: u64, 
         reserve_y: u64,
-        reserve_virtual_x: u64,
-        reserve_virtual_y: u64,
+        reserve_debt_x: u64,
+        reserve_debt_y: u64,
         ): u64 {
         assert!(amount_x > 0, ERROR_INSUFFICIENT_AMOUNT);
         // Calculate actual reserves
         let (actual_x, actual_y) = get_actual_x_y(
             reserve_x, 
             reserve_y, 
-            reserve_virtual_x, 
-            reserve_virtual_y
+            reserve_debt_x, 
+            reserve_debt_y
         );
         // Proportional calculation: amount_x / actual_x * actual_y
         ((amount_x as u128) * (actual_y as u128) / (actual_x as u128)) as u64

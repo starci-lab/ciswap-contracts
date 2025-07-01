@@ -31,6 +31,32 @@ module ciswap::tests_add_liquidity {
         swap::init_for_test(); // Initializes the swap module
     }
 
+    public fun add_liquidity_for_test(
+        user: &signer,
+        cetus_amount: u64, // 2 CETUS
+        usdc_amount: u64 // 1 USDC
+    ) {
+        // Mint some cetus and usdc to Alice
+        let (cetus_addr, usdc_addr, _, _) = tests_assets::get_test_fas();
+        tests_assets::mint_to_address(
+            cetus_addr,
+            signer::address_of(user),
+            200_000_000, // Mint 2 CETUS
+        );
+        tests_assets::mint_to_address(
+            usdc_addr,
+            signer::address_of(user),
+            100_000_000, // Mint 1 USDC
+        );
+        // Alice call the create_pair function
+        swap::add_liquidity(
+            user,
+            0, // Pool ID
+            100_000_000, // Amount of token A (e.g., 1 CETUS)
+            50_000_000, // Amount of token B (e.g., 1 USDC)
+        );
+    }
+
     /// Test: Create a new pair and check all balances and invariants
     /// # Arguments
     /// - deployer, admin, resource_account, treasury, alice, aptos_framework: signers for various roles
@@ -41,6 +67,7 @@ module ciswap::tests_add_liquidity {
         alice: &signer
     ) {
         setup_tests(); // Setup the test environment
+        account::create_account_for_test(signer::address_of(alice));
         tests_create_pair::create_pair_for_test(
             alice,
             200_000_000, // 2 CETUS
