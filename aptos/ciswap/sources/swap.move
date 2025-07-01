@@ -1119,7 +1119,9 @@ module ciswap::swap {
                 let (amount_protocol_fee_out, _) = pool_math_utils::get_extracted_fees(
                     amount_fee_out
                 );
-                amount_fee_out_rest -= amount_protocol_fee_out;
+                // Safety check: prevent underflow
+                assert!(amount_protocol_fee_out <= amount_fee_out, ERR_INVALID_AMOUNT);
+                amount_fee_out_rest = amount_fee_out - amount_protocol_fee_out; // Fixed: prevent underflow
                 let fa_y_protocol_fee_out = fungible_asset::extract(
                     &mut fa_y_fee_out,
                     amount_protocol_fee_out
@@ -1156,7 +1158,9 @@ module ciswap::swap {
                 let (amount_protocol_debt_fee_out, _) = pool_math_utils::get_extracted_fees(
                     amount_debt_fee_out
                 );
-                amount_fee_debt_out_rest -= amount_protocol_debt_fee_out;
+                // Safety check: prevent underflow
+                assert!(amount_protocol_debt_fee_out <= amount_debt_fee_out, ERR_INVALID_AMOUNT);
+                amount_fee_debt_out_rest = amount_debt_fee_out - amount_protocol_debt_fee_out; // Fixed: prevent underflow
 
                 let fa_y_protocol_debt_fee_out = fungible_asset::extract(
                     &mut fa_y_debt_fee_out,
@@ -1229,7 +1233,9 @@ module ciswap::swap {
                 let (amount_protocol_fee_out, _) = pool_math_utils::get_extracted_fees(
                     amount_fee_out
                 );
-                amount_fee_out_rest -= amount_protocol_fee_out;
+                // Safety check: prevent underflow
+                assert!(amount_protocol_fee_out <= amount_fee_out, ERR_INVALID_AMOUNT);
+                amount_fee_out_rest = amount_fee_out - amount_protocol_fee_out; // Fixed: prevent underflow
                 let fa_x_protocol_fee_out = fungible_asset::extract(
                     &mut fa_x_fee_out,
                     amount_protocol_fee_out
