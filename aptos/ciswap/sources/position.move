@@ -34,7 +34,7 @@ module ciswap::position {
         mutator_ref: MutatorRef
     }
 
-    const ERR_LP_NFT_NOT_FOUND: u64 = 0;
+    const ERR_LP_NFT_NOT_OWNED: u64 = 0x1;
 
     struct CollectionMetadatas has key, store {
         metadatas: Table<u64, CollectionMetadata>,
@@ -83,6 +83,14 @@ module ciswap::position {
         );
     }   
 
+    fun make_nft_name(pool_id: u64, next_nft_id: u64): string::String {
+        let nft_name: string::String = string::utf8(b"CiSwap LP-");
+        string::append(&mut nft_name, u64_utils::u64_to_string(pool_id));
+        string::append(&mut nft_name, string::utf8(b"-"));
+        string::append(&mut nft_name, u64_utils::u64_to_string(next_nft_id));
+        nft_name
+    }
+
     public fun create_then_transfer_or_update_lp_nft(
         user: &signer,
         pool_id: u64,
@@ -104,11 +112,7 @@ module ciswap::position {
         };
         // create a new position
         let royalty = option::none();
-        let nft_name: string::String = string::utf8(b"CiSwap LP-");
-        string::append(&mut nft_name, u64_utils::u64_to_string(pool_id));
-        string::append(&mut nft_name, string::utf8(b"-"));
-        string::append(&mut nft_name, u64_utils::u64_to_string(collection_metadata.next_nft_id));
-        
+        let nft_name = make_nft_name(pool_id, collection_metadata.next_nft_id);
         let nft_constructor_ref = &token::create_named_token(
             &resource_account,
             collection_metadata.name,
@@ -155,27 +159,168 @@ module ciswap::position {
         collection_metadata.next_nft_id = collection_metadata.next_nft_id + 1;
     }
 
-    public fun get_position(
-        user: &signer,
+    fun assert_lp_nft_ownership(
+        user_addr: address,
+        pool_id: u64,
+        nft_id: u64,
+        collection_name: String
+    ) {
+        let resource_signer = package_manager::get_resource_signer();
+        // Check if the user owns the NFT
+        let nft_address = token::create_token_address(
+            &signer::address_of(&resource_signer),
+            &collection_name,
+            &make_nft_name(pool_id, nft_id)
+        );
+        let nft = object::address_to_object<Token>(nft_address);
+        assert!(
+            object::owner(nft) == user_addr, 
+            ERR_LP_NFT_NOT_OWNED
+        );
+    }
+
+    public fun get_position_info(
+        user_addr: address,
         pool_id: u64,
         nft_id: u64
-    ): &mut Position acquires CollectionMetadatas {
+    ): (
+        u64,   // k_sqrt_added
+        u128,  // fee_growth_inside_x
+        u128,  // fee_growth_inside_y
+        u128,  // fee_growth_inside_debt_x
+        u128,  // fee_growth_inside_debt_y
+        u64,   // fee_owed_x
+        u64,   // fee_owed_y
+        u64,   // fee_owed_debt_x
+        u64    // fee_owed_debt_y
+    ) acquires CollectionMetadatas {
+        let resource_signer = package_manager::get_resource_signer();
+        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
+            signer::address_of(&resource_signer)
+        );
+        let collection_metadata = table::borrow(&collection_metadatas.metadatas, pool_id);
+        let position = table::borrow(&collection_metadata.positions, nft_id);
+        assert_lp_nft_ownership(
+            user_addr,
+            pool_id,
+            nft_id,
+            collection_metadata.name
+        );
+        // Overwrite the fee owed values
+        (
+            position.k_sqrt_added,
+            position.fee_growth_inside_x,
+            position.fee_growth_inside_y,
+            position.fee_growth_inside_debt_x,
+            position.fee_growth_inside_debt_y,
+            position.fee_owed_x,
+            position.fee_owed_y,
+            position.fee_owed_debt_x,
+            position.fee_owed_debt_y
+        )
+    }
+
+    public fun update_position_fee_owed(
+        user_addr: address,
+        pool_id: u64,
+        nft_id: u64,
+        updated_k_sqrt_added: u64,
+        updated_fee_owed_x: u64,
+        updated_fee_owed_y: u64,
+        updated_fee_owed_debt_x: u64,
+        updated_fee_owed_debt_y: u64
+    ) acquires CollectionMetadatas {
         let resource_signer = package_manager::get_resource_signer();
         let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
             signer::address_of(&resource_signer)
         );
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
         let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
-        // Check if the user owns the NFT
-        let nft_address = token::create_token_address(
-            &signer::address_of(&resource_signer),
-            &collection_metadata.name,
-            &string::utf8(b"CiSwap LP-"),
+        assert_lp_nft_ownership(
+            user_addr,
+            pool_id,
+            nft_id,
+            collection_metadata.name
         );
-        let nft = object::address_to_object<Token>(nft_address);
-        assert!(object::owner(nft) == signer::address_of(user), ERR_LP_NFT_NOT_FOUND);
-        // return the position
-        position
+        // Overwrite the fee owed values
+        position.fee_owed_x                 = updated_fee_owed_x;
+        position.fee_owed_y                 = updated_fee_owed_y;
+        position.fee_owed_debt_x            = updated_fee_owed_debt_x;
+        position.fee_owed_debt_y            = updated_fee_owed_debt_y;
+    }
+
+    public fun update_position_fee_growth_inside(
+        user_addr: address,
+        pool_id: u64,
+        nft_id: u64,
+        updated_fee_growth_inside_x: u128,
+        updated_fee_growth_inside_y: u128,
+        updated_fee_growth_inside_debt_x: u128,
+        updated_fee_growth_inside_debt_y: u128
+    ) acquires CollectionMetadatas {
+        let resource_signer = package_manager::get_resource_signer();
+        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
+            signer::address_of(&resource_signer)
+        );
+        let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        assert_lp_nft_ownership(
+            user_addr,
+            pool_id,
+            nft_id,
+            collection_metadata.name
+        );
+        // Overwrite the fee growth inside values
+        position.fee_growth_inside_x         = updated_fee_growth_inside_x;
+        position.fee_growth_inside_y         = updated_fee_growth_inside_y;
+        position.fee_growth_inside_debt_x    = updated_fee_growth_inside_debt_x;
+        position.fee_growth_inside_debt_y    = updated_fee_growth_inside_debt_y;
+    }
+
+    public fun update_position_k_sqrt_added(
+        user_addr: address,
+        pool_id: u64,
+        nft_id: u64,
+        updated_k_sqrt_added: u64
+    ) acquires CollectionMetadatas {
+        let resource_signer = package_manager::get_resource_signer();
+        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
+            signer::address_of(&resource_signer)
+        );
+        let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        assert_lp_nft_ownership(
+            user_addr,
+            pool_id,
+            nft_id,
+            collection_metadata.name
+        );
+        // Overwrite the k_sqrt_added value
+        position.k_sqrt_added = updated_k_sqrt_added;
+    }
+
+    public fun reset_position_fee_owed(
+        user_addr: address,
+        pool_id: u64,
+        nft_id: u64
+    ) acquires CollectionMetadatas {
+        let resource_signer = package_manager::get_resource_signer();
+        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
+            signer::address_of(&resource_signer)
+        );
+        let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        assert_lp_nft_ownership(
+            user_addr,
+            pool_id,
+            nft_id,
+            collection_metadata.name
+        );
+        // Overwrite the fee owed values to zero
+        position.fee_owed_x                 = 0;
+        position.fee_owed_y                 = 0;
+        position.fee_owed_debt_x            = 0;
+        position.fee_owed_debt_y            = 0;
     }
 
     // ─────────────── Test Harness ───────────────
