@@ -1096,75 +1096,83 @@ module ciswap::swap {
             );
             fungible_asset::deposit(metadata.store_x, fa_x_in);
 
-            // Transfer output tokens (Y) from pool to recipient
-            let fa_y_out = fungible_asset::withdraw(
-                &resource_signer, 
-                metadata.store_y,
-                amount_out
-            );
-            fa_utils::deposit(
-                recipient_addr, 
-                fa_y_out
-            );
+            let amount_fee_out_rest = amount_fee_out;
+            let amount_fee_debt_out_rest = amount_debt_fee_out;
 
-            // Transfer debt tokens (ciY) from pool to recipient
-            let fa_debt_y_out = fungible_asset::withdraw(
-                &resource_signer, 
-                metadata.store_debt_y,
-                amount_debt_out
-            );
-            fa_utils::deposit(
-                recipient_addr, 
-                fa_debt_y_out
-            );
+            if (amount_out > 0) {
+                // Transfer output tokens (Y) from pool to recipient
+                let fa_y_out = fungible_asset::withdraw(
+                    &resource_signer, 
+                    metadata.store_y,
+                    amount_out
+                );
+                fa_utils::deposit(
+                    recipient_addr, 
+                    fa_y_out
+                );    
+                // Process fees for Y tokens - split between LP fees and protocol fees
+                let fa_y_fee_out = fungible_asset::withdraw(
+                    &resource_signer,
+                    metadata.store_y,
+                    amount_fee_out
+                );
+                let (amount_protocol_fee_out, _) = pool_math_utils::get_extracted_fees(
+                    amount_fee_out
+                );
+                amount_fee_out_rest -= amount_protocol_fee_out;
+                let fa_y_protocol_fee_out = fungible_asset::extract(
+                    &mut fa_y_fee_out,
+                    amount_protocol_fee_out
+                );
+                // Deposit LP fees to fee store
+                fungible_asset::deposit(
+                    metadata.store_fee_y,
+                    fa_y_fee_out
+                );
+                // Deposit protocol fees to protocol fee store
+                fungible_asset::deposit(
+                    metadata.store_protocol_fee_y,
+                    fa_y_protocol_fee_out
+                );
+            };
 
-            // Process fees for Y tokens - split between LP fees and protocol fees
-            let fa_y_fee_out = fungible_asset::withdraw(
-                &resource_signer,
-                metadata.store_y,
-                amount_fee_out
-            );
-            let (amount_protocol_fee_out, amount_fee_out_rest) = pool_math_utils::get_extracted_fees(
-                amount_fee_out
-            );
-            let fa_y_protocol_fee_out = fungible_asset::extract(
-                &mut fa_y_fee_out,
-                amount_protocol_fee_out
-            );
-            // Deposit LP fees to fee store
-            fungible_asset::deposit(
-                metadata.store_fee_y,
-                fa_y_fee_out
-            );
-            // Deposit protocol fees to protocol fee store
-            fungible_asset::deposit(
-                metadata.store_protocol_fee_y,
-                fa_y_protocol_fee_out
-            );
+            if (amount_debt_out > 0) {
+                // Transfer debt tokens (ciY) from pool to recipient
+                let fa_debt_y_out = fungible_asset::withdraw(
+                    &resource_signer, 
+                    metadata.store_debt_y,
+                    amount_debt_out
+                );
+                fa_utils::deposit(
+                    recipient_addr, 
+                    fa_debt_y_out
+                );
+                // Process fees for debt Y tokens - split between LP fees and protocol fees
+                let fa_y_debt_fee_out = fungible_asset::withdraw(
+                    &resource_signer,
+                    metadata.store_debt_y,
+                    amount_debt_fee_out
+                );
+                let (amount_protocol_debt_fee_out, _) = pool_math_utils::get_extracted_fees(
+                    amount_debt_fee_out
+                );
+                amount_fee_debt_out_rest -= amount_protocol_debt_fee_out;
 
-            // Process fees for debt Y tokens - split between LP fees and protocol fees
-            let fa_y_debt_fee_out = fungible_asset::withdraw(
-                &resource_signer,
-                metadata.store_debt_y,
-                amount_debt_fee_out
-            );
-            let (amount_protocol_debt_fee_out, amount_fee_debt_out_rest) = pool_math_utils::get_extracted_fees(
-                amount_debt_fee_out
-            );
-            let fa_y_protocol_debt_fee_out = fungible_asset::extract(
-                &mut fa_y_debt_fee_out,
-                amount_protocol_debt_fee_out
-            );
-            // Deposit LP debt fees to debt fee store
-            fungible_asset::deposit(
-                metadata.store_fee_debt_y,
-                fa_y_debt_fee_out
-            );
-            // Deposit protocol debt fees to protocol debt fee store
-            fungible_asset::deposit(
-                metadata.store_protocol_fee_debt_y,
-                fa_y_protocol_debt_fee_out
-            );
+                let fa_y_protocol_debt_fee_out = fungible_asset::extract(
+                    &mut fa_y_debt_fee_out,
+                    amount_protocol_debt_fee_out
+                );
+                // Deposit LP debt fees to debt fee store
+                fungible_asset::deposit(
+                    metadata.store_fee_debt_y,
+                    fa_y_debt_fee_out
+                );
+                // Deposit protocol debt fees to protocol debt fee store
+                fungible_asset::deposit(
+                    metadata.store_protocol_fee_debt_y,
+                    fa_y_protocol_debt_fee_out
+                );
+            };
 
             // Update global fee tracking for LP positions
             update_fees_global(
@@ -1199,75 +1207,82 @@ module ciswap::swap {
             );
             fungible_asset::deposit(metadata.store_y, fa_y_in);
 
-            // Transfer output tokens (X) from pool to recipient
-            let fa_x_out = fungible_asset::withdraw(
-                &resource_signer, 
-                metadata.store_x,
-                amount_out
-            );
-            fa_utils::deposit(
-                recipient_addr,
-                fa_x_out
-            );
-
-            // Transfer debt tokens (ciX) from pool to recipient
-            let fa_debt_x_out = fungible_asset::withdraw(
-                &resource_signer, 
-                metadata.store_debt_x,
-                amount_debt_out
-            );
-            fa_utils::deposit(
-                recipient_addr,
-                fa_debt_x_out
-            );
-
-            // Process fees for X tokens - split between LP fees and protocol fees
-            let fa_x_fee_out = fungible_asset::withdraw(
-                &resource_signer,
-                metadata.store_x,
-                amount_fee_out
-            );
-            let (amount_protocol_fee_out, amount_fee_out_rest) = pool_math_utils::get_extracted_fees(
-                amount_fee_out
-            );
-            let fa_x_protocol_fee_out = fungible_asset::extract(
-                &mut fa_x_fee_out,
-                amount_protocol_fee_out
-            );
-            // Deposit LP fees to fee store
-            fungible_asset::deposit(
-                metadata.store_fee_x,
-                fa_x_fee_out
-            );
-            // Deposit protocol fees to protocol fee store
-            fungible_asset::deposit(
-                metadata.store_protocol_fee_x,
-                fa_x_protocol_fee_out
-            );
-
-            // Process fees for debt X tokens - split between LP fees and protocol fees
-            let fa_debt_x_fee_out = fungible_asset::withdraw(
-                &resource_signer,
-                metadata.store_debt_x,
-                amount_debt_fee_out
-            );
-            let (amount_protocol_debt_fee_out, amount_fee_debt_out_rest) = pool_math_utils::get_extracted_fees(
-                amount_debt_fee_out
-            );
-            let fa_debt_x_protocol_fee_out = fungible_asset::extract(
-                &mut fa_debt_x_fee_out,
-                amount_protocol_debt_fee_out
-            );
-            // Deposit LP debt fees to debt fee store
-            fungible_asset::deposit(
-                metadata.store_fee_debt_x,
-                fa_debt_x_fee_out
-            );
-            // Deposit protocol debt fees to protocol debt fee store
-            fungible_asset::deposit(
-                metadata.store_protocol_fee_debt_y, // Fixed: was using store_protocol_fee_x instead of debt_y
-                fa_debt_x_protocol_fee_out
-            );
+            let amount_fee_out_rest = amount_fee_out;
+            let amount_fee_debt_out_rest = amount_debt_fee_out;
+            if (amount_out > 0) {
+                // Transfer output tokens (X) from pool to recipient
+                let fa_x_out = fungible_asset::withdraw(
+                    &resource_signer, 
+                    metadata.store_x,
+                    amount_out
+                );
+                fa_utils::deposit(
+                    recipient_addr,
+                    fa_x_out
+                );
+                // Process fees for X tokens - split between LP fees and protocol fees
+                let fa_x_fee_out = fungible_asset::withdraw(
+                    &resource_signer,
+                    metadata.store_x,
+                    amount_fee_out
+                );
+                let (amount_protocol_fee_out, _) = pool_math_utils::get_extracted_fees(
+                    amount_fee_out
+                );
+                amount_fee_out_rest -= amount_protocol_fee_out;
+                let fa_x_protocol_fee_out = fungible_asset::extract(
+                    &mut fa_x_fee_out,
+                    amount_protocol_fee_out
+                );
+                // Deposit LP fees to fee store
+                fungible_asset::deposit(
+                    metadata.store_fee_x,
+                    fa_x_fee_out
+                );
+                // Deposit protocol fees to protocol fee store
+                fungible_asset::deposit(
+                    metadata.store_protocol_fee_x,
+                    fa_x_protocol_fee_out
+                );
+            };
+            
+            if (amount_debt_out > 0) {
+                // Transfer debt tokens (ciX) from pool to recipient
+                let fa_debt_x_out = fungible_asset::withdraw(
+                    &resource_signer, 
+                    metadata.store_debt_x,
+                    amount_debt_out
+                );
+                fa_utils::deposit(
+                    recipient_addr,
+                    fa_debt_x_out
+                );
+                // Process fees for debt X tokens - split between LP fees and protocol fees
+                let fa_debt_x_fee_out = fungible_asset::withdraw(
+                    &resource_signer,
+                    metadata.store_debt_x,
+                    amount_debt_fee_out
+                );
+                let (amount_protocol_debt_fee_out, _) = pool_math_utils::get_extracted_fees(
+                    amount_debt_fee_out
+                );
+                amount_fee_debt_out_rest -= amount_protocol_debt_fee_out;
+                
+                let fa_debt_x_protocol_fee_out = fungible_asset::extract(
+                    &mut fa_debt_x_fee_out,
+                    amount_protocol_debt_fee_out
+                );
+                // Deposit LP debt fees to debt fee store
+                fungible_asset::deposit(
+                    metadata.store_fee_debt_x,
+                    fa_debt_x_fee_out
+                );
+                // Deposit protocol debt fees to protocol debt fee store
+                fungible_asset::deposit(
+                    metadata.store_protocol_fee_debt_y, // Fixed: was using store_protocol_fee_x instead of debt_y
+                    fa_debt_x_protocol_fee_out
+                );
+            };
 
             // Update global fee tracking for LP positions
             update_fees_global(
