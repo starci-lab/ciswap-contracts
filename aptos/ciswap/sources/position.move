@@ -22,15 +22,19 @@ module ciswap::position {
     struct Position has key, store {
         pool_id: u64,
         k_sqrt_added: u64,
-        fee_growth_inside_x: u64,
-        fee_growth_inside_y: u64,
-        fee_growth_inside_debt_x: u64,
-        fee_growth_inside_debt_y: u64,
-        tokens_owed_x: u64,
-        tokens_owed_y: u64,
+        fee_growth_inside_x: u128,
+        fee_growth_inside_y: u128,
+        fee_growth_inside_debt_x: u128,
+        fee_growth_inside_debt_y: u128,
+        fee_owed_x: u64,
+        fee_owed_y: u64,
+        fee_owed_debt_x: u64,
+        fee_owed_debt_y: u64,
         burn_ref: BurnRef,
         mutator_ref: MutatorRef
     }
+
+    const ERR_LP_NFT_NOT_FOUND: u64 = 0;
 
     struct CollectionMetadatas has key, store {
         metadatas: Table<u64, CollectionMetadata>,
@@ -123,8 +127,10 @@ module ciswap::position {
             fee_growth_inside_y: 0,
             fee_growth_inside_debt_x: 0,
             fee_growth_inside_debt_y: 0,
-            tokens_owed_x: 0,
-            tokens_owed_y: 0,
+            fee_owed_x: 0,
+            fee_owed_y: 0,
+            fee_owed_debt_x: 0,
+            fee_owed_debt_y: 0,
             burn_ref,
             mutator_ref
         };
@@ -147,6 +153,29 @@ module ciswap::position {
         );
         // transfer the NFT to the user
         collection_metadata.next_nft_id = collection_metadata.next_nft_id + 1;
+    }
+
+    public fun get_position(
+        user: &signer,
+        pool_id: u64,
+        nft_id: u64
+    ): &mut Position acquires CollectionMetadatas {
+        let resource_signer = package_manager::get_resource_signer();
+        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
+            signer::address_of(&resource_signer)
+        );
+        let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        // Check if the user owns the NFT
+        let nft_address = token::create_token_address(
+            &signer::address_of(&resource_signer),
+            &collection_metadata.name,
+            &string::utf8(b"CiSwap LP-"),
+        );
+        let nft = object::address_to_object<Token>(nft_address);
+        assert!(object::owner(nft) == signer::address_of(user), ERR_LP_NFT_NOT_FOUND);
+        // return the position
+        position
     }
 
     // ─────────────── Test Harness ───────────────

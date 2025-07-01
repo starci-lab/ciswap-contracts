@@ -114,6 +114,9 @@ module ciswap::swap {
     }
 
     struct CollectFeeEvent has drop, store {
+        sender_addr: address, // Address of the fee collector
+        pool_id: u64,          // Address of the pool
+        nft_id: u64, // ID of the LP token (NFT)
         amount_x: u64,
         amount_y: u64,
         amount_debt_x: u64,
@@ -1228,50 +1231,6 @@ module ciswap::swap {
         );
     }
 
-//     /// Returns the output amounts for a given input and direction, without executing the swap
-//     public fun get_amount_out<X, Y>(
-//         pool_index: u64,
-//         amount_in: u64,
-//         x_for_y: bool
-//     ): (u64, u64) acquires TokenPairReserves {
-//         let (
-//             reserve_x, 
-//             reserve_y, 
-//             reserve_debt_x, 
-//             reserve_debt_y
-//         ) = token_reserves<X, Y>(pool_index);
-//         pool_math_utils::get_tokens_amount_out(
-//             amount_in, 
-//             x_for_y, 
-//             reserve_x, 
-//             reserve_y, 
-//             reserve_debt_x, 
-//             reserve_debt_y
-//         )
-//     }
-
-//     /// Returns the input amount required to get a desired output, for a given direction
-//     public fun get_amount_in<X, Y>(
-//         pool_index: u64,
-//         amount_out: u64,
-//         x_for_y: bool
-//     ): ( u64 ) acquires TokenPairReserves {
-//         let (
-//             reserve_x, 
-//             reserve_y, 
-//             reserve_debt_x, 
-//             reserve_debt_y
-//         ) = token_reserves<X, Y>(pool_index);
-//         pool_math_utils::get_amount_in(
-//             amount_out,
-//             x_for_y,
-//             reserve_x,
-//             reserve_y,
-//             reserve_debt_x,
-//             reserve_debt_y,
-//         )
-//     }
-
     /// Asserts that a pair is created for either (X, Y) or (Y, X)
     public fun is_pool_created(pool_id: u64) acquires SwapInfo {
         let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
@@ -1290,30 +1249,93 @@ module ciswap::swap {
         );
     }
 
-//     /// Get swap information, including admin and fee recipient
-//     #[view]
-//     public fun get_creation_fee_in_apt(): u64 acquires SwapInfo {
-//         borrow_global<SwapInfo>(RESOURCE_ACCOUNT).creation_fee_in_apt
-//     }
+    /// Collects accumulated fees from a liquidity position
+    public fun collect_fee(
+        sender: &signer,
+        pool_id: u64,
+        nft_id: u64
+    ): (
+        u64, // collected_fee_x
+        u64, // collected_fee_y
+        u64, // collected_fee_debt_x 
+        u64  // collected_fee_debt_y
+    ) acquires TokenPairMetadatas {
+        let sender_addr = signer::address_of(sender);
+        let resource_signer = package_manager::get_resource_signer();
+        
+        // 1. Access position metadata
+        let position = position::get_position(
+            sender, 
+            pool_id, 
+            nft_id
+        );
+        // 2. Get current global fee growth
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata_mut(pool_id, metadatas);
+        
+        // 3. Calculate fee delta
+        let fee_delta_x = metadata.global_x_fee_growth - position.fee_growth_inside_x;
+        let fee_delta_y = metadata.global_y_fee_growth - position.fee_growth_inside_y;
+        let fee_delta_debt_x = metadata.global_debt_x_fee_growth - position.fee_growth_inside_debt_x;
+        let fee_delta_debt_y = metadata.global_debt_y_fee_growth - position.fee_growth_inside_debt_y;
 
-//     /// Get pool creation fee in APT
-//     #[view]
-//     public fun get_pool_creation_fee_apt(): u64 acquires SwapInfo {
-//         coin::value(&borrow_global<SwapInfo>(RESOURCE_ACCOUNT).pool_creation_fee_apt)
-//     }
+        // 4. Calculate actual fee amounts based on liquidity share
+        let liquidity_share = position.k_sqrt_added;
+        let total_k_sqrt = metadata.k_sqrt_last - metadata.k_sqrt_locked;
+        
+        let collected_fee_x = ((fee_delta_x as u128) * (liquidity_share as u128) / (total_k_sqrt as u128)) as u64;
+        let collected_fee_y = ((fee_delta_y as u128) * (liquidity_share as u128) / (total_k_sqrt as u128)) as u64;
+        let collected_fee_debt_x = ((fee_delta_debt_x as u128) * (liquidity_share as u128) / (total_k_sqrt as u128)) as u64;
+        let collected_fee_debt_y = ((fee_delta_debt_y as u128) * (liquidity_share as u128) / (total_k_sqrt as u128)) as u64;
 
-//     fun wrap_coin_into_fa<X>(
-//         sender: &signer,
-//         amount: u64
-//     ) {
-//         // 1. Withdraw the legacy coin from the user's account
-//         let legacy_coin = coin::withdraw<X>(user, amount);
-//         // 2. (Optional) burn the legacy coin if needed
-//         // This step is not strictly necessary, but can be used to ensure the legacy coin is
-//         coin::burn(legacy_coin);
-//         // 3. Mint FA tương ứng
-//         fungible_asset::mint(copy fa_info, amount);
-//     }
+        // 5. Update position state
+        position.fee_growth_inside_x = metadata.global_x_fee_growth;
+        position.fee_growth_inside_y = metadata.global_y_fee_growth;
+        position.fee_growth_inside_debt_x = metadata.global_debt_x_fee_growth;
+        position.fee_growth_inside_debt_y = metadata.global_debt_y_fee_growth;
+        position.fee_owed_x += collected_fee_x;
+        position.fee_owed_y += collected_fee_y;
+        position.fee_owed_debt_x += collected_fee_debt_x;
+        position.fee_owed_debt_y += collected_fee_debt_y;
+
+        // 6. Transfer fees to sender
+        let address_fa_x = fa_utils::get_address_from_store(metadata.store_fee_x);
+        let address_fa_y = fa_utils::get_address_from_store(metadata.store_fee_y);
+        let address_fa_debt_x = fa_utils::get_address_from_store(metadata.store_fee_debt_x);
+        let address_fa_debt_y = fa_utils::get_address_from_store(metadata.store_fee_debt_y);
+
+        // Withdraw fees from fee stores
+        let fa_x = fungible_asset::withdraw(&resource_signer, metadata.store_fee_x, collected_fee_x);
+        let fa_y = fungible_asset::withdraw(&resource_signer, metadata.store_fee_y, collected_fee_y);
+        let fa_debt_x = fungible_asset::withdraw(&resource_signer, metadata.store_fee_debt_x, collected_fee_debt_x);
+        let fa_debt_y = fungible_asset::withdraw(&resource_signer, metadata.store_fee_debt_y, collected_fee_debt_y);
+
+        // Deposit to sender
+        fa_utils::deposit(sender_addr, fa_x);
+        fa_utils::deposit(sender_addr, fa_y);
+        fa_utils::deposit(sender_addr, fa_debt_x);
+        fa_utils::deposit(sender_addr, fa_debt_y);
+
+        // 7. Emit event if needed (có thể thêm event sau)
+        event::emit_event<CollectFeeEvent>(
+            &mut borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT).collect_fee,
+            CollectFeeEvent {
+                sender_addr,
+                pool_id,
+                nft_id,     
+                amount_x: collected_fee_x,
+                amount_y: collected_fee_y,
+                amount_debt_x: collected_fee_debt_x,
+                amount_debt_y: collected_fee_debt_y
+            }
+        );
+        (
+            collected_fee_x,
+            collected_fee_y,
+            collected_fee_debt_x,
+            collected_fee_debt_y
+        )
+    }
 
     /// Test-only function to initialize the module (for unit tests)
     #[test_only]
