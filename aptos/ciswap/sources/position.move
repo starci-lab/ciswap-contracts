@@ -18,8 +18,19 @@ module ciswap::position {
         next_nft_id: u64,
     }
 
+    struct Position has key, store {
+        pool_id: u64,
+        nft_id: u64,
+        k_sqrt_added: u64,
+        fee_growth_inside_x: u64,
+        fee_growth_inside_y: u64,
+        tokens_owed_x: u64,
+        tokens_owed_y: u64,
+    }
+
     struct CollectionMetadatas has key, store {
         metadatas: Table<u64, CollectionMetadata>,
+        positions: Table<u64, Position>,
     }
 
     /// Initializes the package manager module exactly once
@@ -29,6 +40,7 @@ module ciswap::position {
             &resource_signer,
             CollectionMetadatas { 
                 metadatas: table::new<u64, CollectionMetadata>(),
+                positions: table::new<u64, Position>(),
             },
         );
     }
@@ -54,7 +66,7 @@ module ciswap::position {
         user: &signer,
         pool_id: u64,
         k_sqrt_added: u64,
-    ): Token {
+    ) {
         let resource_account = package_manager::get_resource_signer();
         let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
             signer::address_of(&resource_account)
@@ -69,5 +81,20 @@ module ciswap::position {
             royalty,
             string::utf8(b"https://ciswap.finance"),
         );
+        let position = Position {
+            pool_id,
+            nft_id: collection_metadata.next_nft_id,
+            k_sqrt_added,
+            fee_growth_inside_x: 0,
+            fee_growth_inside_y: 0,
+            tokens_owed_x: 0,
+            tokens_owed_y: 0,
+        };
+        table::add(
+            &mut collection_metadatas.positions,
+            collection_metadata.next_nft_id,
+            position
+        );
+        // transfer the NFT to the user
     }
 }

@@ -403,7 +403,6 @@ module ciswap::swap {
         // --------------------------------------------------------------------
         // 3. Create the LP token for the pair
         position::create_collection(
-            &resource_signer,
             pool_id
         );
         // --------------------------------------------------------------------
@@ -918,7 +917,7 @@ module ciswap::swap {
         );
         let k_diff = new_k_sqrt - metadata.k_sqrt_last;
         // create a NFT LP representing the liquidity added 
-        
+
         // update the metadata
         metadata.k_sqrt_last = new_k_sqrt;
         
