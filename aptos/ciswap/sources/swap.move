@@ -1285,7 +1285,7 @@ module ciswap::swap {
                 );
                 // Deposit protocol debt fees to protocol debt fee store
                 fungible_asset::deposit(
-                    metadata.store_protocol_fee_debt_y, // Fixed: was using store_protocol_fee_x instead of debt_y
+                    metadata.store_protocol_fee_debt_x, // Fixed: was using store_protocol_fee_x instead of debt_y
                     fa_debt_x_protocol_fee_out
                 );
             };
