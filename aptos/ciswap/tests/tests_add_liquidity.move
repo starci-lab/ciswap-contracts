@@ -51,12 +51,12 @@ module ciswap::tests_add_liquidity {
         tests_assets::mint_to_address(
             cetus_addr,
             signer::address_of(alice),
-            100_000_000, // Mint 1 CETUS
+            200_000_000, // Mint 2 CETUS
         );
         tests_assets::mint_to_address(
             usdc_addr,
             signer::address_of(alice),
-            100_000_000, // Mint 1 USDC
+            100_000_000, // Mint 2 USDC
         );
         let (desired_x, desired_y) = swap::add_liquidity(
             alice,
@@ -71,6 +71,22 @@ module ciswap::tests_add_liquidity {
         assert!(
             k_sqrt_last == math64::sqrt(
                 (200_000_000 + 100_000_000) * (100_000_000 + 50_000_000)
+            ), 
+            ERR_K_LAST_MISMATCH
+        ); // Check k_sqrt_last is updated correctly
+
+        let (desired_x, desired_y) = swap::add_liquidity(
+            alice,
+            0, // Pool ID
+            100_000_000, // Amount of token A (e.g., 1 CETUS)
+            100_000_000, // Amount of token B (e.g., 1 USDC)
+        );
+        assert!(desired_x == 100_000_000, ERR_DESIRED_X_NOT_MISMATCH);
+        assert!(desired_y == 50_000_000, ERR_DESIRED_Y_NOT_MISMATCH);
+        let k_sqrt_last = swap::k_sqrt_last(0);
+        assert!(
+            k_sqrt_last == math64::sqrt(
+                (200_000_000 + 200_000_000) * (100_000_000 + 100_000_000)
             ), 
             ERR_K_LAST_MISMATCH
         ); // Check k_sqrt_last is updated correctly
