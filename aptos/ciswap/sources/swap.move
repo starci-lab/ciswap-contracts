@@ -559,6 +559,8 @@ module ciswap::swap {
             }
         );
 
+        swap_info.next_pool_id = pool_id + 1; // Increment the next pool id for future pairs
+
         let pair_event_holder = borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT);
         event::emit_event<PairCreatedEvent>(
             &mut pair_event_holder.pair_created,
@@ -575,26 +577,26 @@ module ciswap::swap {
         );
     }
 
-//     /// Returns the current balances of X, Y, virtual X, and virtual Y in the pool
-//     public fun token_balances<X, Y>(pool_index: u64): (u64, u64, u64, u64) acquires TokenPairMetadatas {
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata<X, Y>(pool_index, metadatas);
-//         (
-//             coin::value(&metadata.balance_x),
-//             coin::value(&metadata.balance_y),
-//             coin::value(&metadata.balance_debt_x),
-//             coin::value(&metadata.balance_debt_y)
-//         )
-//     }
+    /// Returns the current balances of X, Y, virtual X, and virtual Y in the pool
+    public fun token_balances(pool_id: u64): (u64, u64, u64, u64) acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        (
+            fungible_asset::balance(metadata.store_x),
+            fungible_asset::balance(metadata.store_x),
+            fungible_asset::balance(metadata.store_debt_x),
+            fungible_asset::balance(metadata.store_debt_y)
+        )
+    }
 
-//     // retrieve the metadata by X,Y and pool address
-//     /// Returns a reference to the metadata for a given pool address
-//     public fun get_metadata<X, Y>(
-//         pool_index: u64, 
-//         metadatas: &mut TokenPairMetadatas<X, Y>
-//     ): &TokenPairMetadata<X, Y> {
-//         table::borrow(&mut metadatas.metadatas, pool_index)  
-//     }
+    // retrieve the metadata by X,Y and pool address
+    /// Returns a reference to the metadata for a given pool address
+    public fun get_metadata(
+        pool_id: u64, 
+        metadatas: &mut TokenPairMetadatas
+    ): &TokenPairMetadata {
+        table::borrow(&mut metadatas.metadatas, pool_id)  
+    }
 
 //     /// Returns a mutable reference to the metadata for a given pool address
 //     public fun get_metadata_mut<X, Y>(
@@ -604,14 +606,14 @@ module ciswap::swap {
 //         table::borrow_mut(&mut metadatas.metadatas, pool_index)  
 //     }
 
-//     // retrieve the reserve by X,Y and pool address
-//     /// Returns a reference to the reserves for a given pool address
-//     public fun get_reserve<X, Y>(
-//         pool_index: u64,
-//         reserves: &mut TokenPairReserves<X, Y>
-//     ): &TokenPairReserve<X, Y> {
-//         table::borrow(&mut reserves.reserves, pool_index)  
-//     }
+    // retrieve the reserve by X,Y and pool address
+    /// Returns a reference to the reserves for a given pool address
+    public fun get_reserve(
+        pool_id: u64,
+        reserves: &mut TokenPairReserves
+    ): &TokenPairReserve {
+        table::borrow(&mut reserves.reserves, pool_id)  
+    }
 
 //     /// Returns a mutable reference to the reserves for a given pool address
 //     public fun get_reserve_mut<X, Y>(
@@ -719,24 +721,24 @@ module ciswap::swap {
 //         )
 //     }
 
-//     /// Returns the current reserves (real and virtual) for a pool
-//     public fun token_reserves<X, Y>(
-//         pool_index: u64
-//     ): (
-//         u64, 
-//         u64, 
-//         u64,
-//         u64
-//     ) acquires TokenPairReserves {
-//         let reserves = borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
-//         let reserve = get_reserve<X, Y>(pool_index, reserves);
-//         (
-//             reserve.reserve_x, 
-//             reserve.reserve_y, 
-//             reserve.reserve_debt_x, 
-//             reserve.reserve_debt_y
-//         )
-//     }   
+    /// Returns the current reserves (real and virtual) for a pool
+    public fun token_reserves(
+        pool_index: u64
+    ): (
+        u64, 
+        u64, 
+        u64,
+        u64
+    ) acquires TokenPairReserves {
+        let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
+        let reserve = get_reserve(pool_index, reserves);
+        (
+            reserve.reserve_x, 
+            reserve.reserve_y, 
+            reserve.reserve_debt_x, 
+            reserve.reserve_debt_y
+        )
+    }   
 
 //     /// Deposits X into the pool's balance (internal use)
 //     fun deposit_x<X, Y>(pool_index: u64, amount: coin::Coin<X>) acquires TokenPairMetadatas {
@@ -775,12 +777,12 @@ module ciswap::swap {
 //         )
 //     }
 
-//     /// Returns the last recorded sqrt(K) for a pool (used for fee calculation)
-//     public fun k_sqrt<X, Y>(pool_index: u64) : u64 acquires TokenPairMetadatas {
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata<X, Y>(pool_index, metadatas);
-//         metadata.k_sqrt_last
-//     }
+    /// Returns the last recorded sqrt(K) for a pool (used for fee calculation)
+    public fun k_sqrt_last(pool_id: u64) : u64 acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        metadata.k_sqrt_last
+    }
 
 //     /// Returns the accumulated fee amount in LP tokens for a pool
 //     public fun fee_amount<X, Y>(pool_index: u64): u64 acquires TokenPairMetadatas {
@@ -835,68 +837,109 @@ module ciswap::swap {
 //         (lp, fee)
 //     }
 
-//     /// Adds liquidity to the pool directly, returning optimal amounts and LP tokens
-//     fun add_liquidity_direct<X, Y>(
-//         pool_index: u64,
-//         x: coin::Coin<X>,
-//         y: coin::Coin<Y>,
-//     ): (
-//         u64, 
-//         u64, 
-//         coin::Coin<LPToken<X, Y>>, u64, 
-//         coin::Coin<X>, 
-//         coin::Coin<Y>
-//     ) acquires TokenPairReserves, TokenPairMetadatas {
-//         let amount_x = coin::value(&x);
-//         let amount_y = coin::value(&y);
-//         let (
-//             reserve_x, 
-//             reserve_y, 
-//             reserve_debt_x, 
-//             reserve_debt_y
-//         ) = token_reserves<X, Y>(pool_index);
-//         // Calculate optimal amounts to add based on current reserves
-//         let (a_x, a_y) = {
-//             let amount_y_optimal = pool_math_utils::quote(
-//                 amount_x, 
-//                 reserve_x, 
-//                 reserve_y, 
-//                 reserve_debt_x,
-//                 reserve_debt_y
-//                 );
-//             if (amount_y_optimal <= amount_y) {
-//                 (amount_x, amount_y_optimal)
-//             } else {
-//                 let amount_x_optimal = pool_math_utils::quote(
-//                     amount_y, 
-//                     reserve_y,
-//                     reserve_x,
-//                     reserve_debt_y,
-//                     reserve_debt_x
-//                 );
-//                 assert!(amount_x_optimal <= amount_x, ERROR_INVALID_AMOUNT);
-//                 (amount_x_optimal, amount_y)
-//             }
-//         };
+    /// Adds liquidity to the pool directly, returning optimal amounts and LP tokens
+    fun add_liquidity(
+        sender: &signer,
+        pool_id: u64,
+        amount_x: u64,
+        amount_y: u64,
+    ): (
+        u64, 
+        u64, 
+    ) acquires TokenPairReserves, TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        let (
+            reserve_x, 
+            reserve_y, 
+            reserve_debt_x, 
+            reserve_debt_y
+        ) = token_reserves(pool_id);
+        // Calculate optimal amounts to add based on current reserves
+        let (a_x, a_y) = {
+            let amount_y_optimal = pool_math_utils::quote(
+                amount_x, 
+                reserve_x, 
+                reserve_y, 
+                reserve_debt_x,
+                reserve_debt_y
+                );
+            if (amount_y_optimal <= amount_y) {
+                (amount_x, amount_y_optimal)
+            } else {
+                let amount_x_optimal = pool_math_utils::quote(
+                    amount_y, 
+                    reserve_y,
+                    reserve_x,
+                    reserve_debt_y,
+                    reserve_debt_x
+                );
+                assert!(amount_x_optimal <= amount_x, ERROR_INVALID_AMOUNT);
+                (amount_x_optimal, amount_y)
+            }
+        };
 
-//         assert!(a_x <= amount_x, ERROR_INSUFFICIENT_AMOUNT);
-//         assert!(a_y <= amount_y, ERROR_INSUFFICIENT_AMOUNT);
+        assert!(a_x <= amount_x, ERROR_INSUFFICIENT_AMOUNT);
+        assert!(a_y <= amount_y, ERROR_INSUFFICIENT_AMOUNT);
 
-//         // Extract any excess tokens and deposit the optimal amounts
-//         let left_x = coin::extract(&mut x, amount_x - a_x);
-//         let left_y = coin::extract(&mut y, amount_y - a_y);
-//         deposit_x<X, Y>(pool_index, x);
-//         deposit_y<X, Y>(pool_index, y);
-//         let (lp, fee_amount) = mint<X, Y>(pool_index);
-//         (a_x, a_y, lp, fee_amount, left_x, left_y)
-//     }
+        // Extract any excess tokens and deposit the optimal amounts
+        let left_x_fa = fa_utils::withdraw_fa_from_address(
+            sender,
+            signer::address_of(sender),
+            fa_utils::get_address_from_store(
+                metadata.store_x
+            ),
+            amount_y - a_y);
+        let left_y_fa = fa_utils::withdraw_fa_from_address(
+            sender,
+            signer::address_of(sender),
+            fa_utils::get_address_from_store(
+                metadata.store_y
+            ),
+            amount_x - a_x);
 
-//     /// Checks if the sender has a CoinStore for type X, and registers if not
-//     public fun check_or_register_coin_store<X>(sender: &signer) {
-//         if (!coin::is_account_registered<X>(signer::address_of(sender))) {
-//             coin::register<X>(sender);
-//         };
-//     }
+        fungible_asset::deposit(
+            metadata.store_x,
+            left_x_fa
+        );
+        fungible_asset::deposit(
+            metadata.store_y,
+            left_y_fa
+        );
+
+        let new_reserve_x = reserve_x + a_x;
+        let new_reserve_y = reserve_y + a_y;
+
+        let new_k_sqrt = pool_math_utils::get_k_sqrt(
+            new_reserve_x, 
+            new_reserve_y, 
+            reserve_debt_x,
+            reserve_debt_y
+        );
+        let k_diff = new_k_sqrt - metadata.k_sqrt_last;
+        // create a NFT LP representing the liquidity added 
+        
+        // update the metadata
+        metadata.k_sqrt_last = new_k_sqrt;
+        
+        // update the pool's reserves
+        update(
+            new_reserve_x, 
+            new_reserve_y, 
+            reserve_debt_x, 
+            reserve_debt_y,
+            borrow_global_mut<TokenPairReserve>(RESOURCE_ACCOUNT)
+        );
+
+        (a_x, a_y)
+    }
+
+    /// Checks if the sender has a CoinStore for type X, and registers if not
+    public fun check_or_register_coin_store<X>(sender: &signer) {
+        if (!coin::is_account_registered<X>(signer::address_of(sender))) {
+            coin::register<X>(sender);
+        };
+    }
 
 //     /// Adds liquidity to the pool, mints LP tokens, and emits an event
 //     public fun add_liquidity<X, Y>(
@@ -965,20 +1008,20 @@ module ciswap::swap {
 //     }
 
 //     /// Updates the reserves for a pool with new balances and timestamp
-//     fun update<X, Y>(
-//         balance_x: u64, 
-//         balance_y: u64, 
-//         balance_debt_x: u64, 
-//         balance_debt_y: u64,
-//         reserve: &mut TokenPairReserve<X, Y>
-//     ) {
-//         let block_timestamp = timestamp::now_seconds();
-//         reserve.reserve_x = balance_x;
-//         reserve.reserve_y = balance_y;
-//         reserve.reserve_debt_x = balance_debt_x;
-//         reserve.reserve_debt_y = balance_debt_y;
-//         reserve.block_timestamp_last = block_timestamp;
-//     }
+    fun update(
+        balance_x: u64, 
+        balance_y: u64, 
+        balance_debt_x: u64, 
+        balance_debt_y: u64,
+        reserve: &mut TokenPairReserve
+    ) {
+        let block_timestamp = timestamp::now_seconds();
+        reserve.reserve_x = balance_x;
+        reserve.reserve_y = balance_y;
+        reserve.reserve_debt_x = balance_debt_x;
+        reserve.reserve_debt_y = balance_debt_y;
+        reserve.block_timestamp_last = block_timestamp;
+    }
 
 //     /// Swaps tokens in the pool, transferring output to the recipient and emitting an event
 //     /// x_for_y: true means swapping X for Y, false means swapping Y for X
@@ -1200,9 +1243,10 @@ module ciswap::swap {
 //         fungible_asset::mint(copy fa_info, amount);
 //     }
 
-//     /// Test-only function to initialize the module (for unit tests)
-//     #[test_only]
-//     public fun initialize(sender: &signer) {
-//         init_module(sender);
-//     }
+    /// Test-only function to initialize the module (for unit tests)
+    #[test_only]
+    public fun init_for_test() {
+        let resource_signer = package_manager::get_resource_signer();
+        init_module(&resource_signer);
+    }
 }

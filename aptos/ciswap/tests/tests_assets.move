@@ -1,5 +1,5 @@
 #[test_only]
-module ciswap::test_assets {
+module ciswap::tests_assets {
     //! ============================================================
     //! Module: ciswap::test_fungible_assets
     //! ------------------------------------------------------------
@@ -31,6 +31,7 @@ module ciswap::test_assets {
     // ───────────── Constants ─────────────
     const TESTS_ASSETS_ADMIN: address = @tests_assets_admin;
     const DEPLOYER: address = @deployer;
+    const APTOS_FRAMEWORK: address = @aptos_framework;
 
     const ERR_APT_BALANCE_MISMATCH: u64 = 101;
     const ERR_CETUS_BALANCE_MISMATCH: u64 = 201;
@@ -39,9 +40,10 @@ module ciswap::test_assets {
     const ERR_BNB_BALANCE_MISMATCH: u64  = 204;
     const ERR_MANAGED_COIN_BALANCE_MISMATCH: u64 = 301;
     const ERR_WRAP_BALANCE_MISMATCH: u64 = 302;
+    const ERR_FA_NOT_MATCH: u64 = 303;
 
     // ───────────── Test Support Structs ─────────────
-    struct TestCoins has key, store {
+    struct TestFAs has key, store {
         cetus_addr: address,
         usdc_addr:  address,
         busd_addr:  address,
@@ -69,6 +71,17 @@ module ciswap::test_assets {
             string::utf8(b"https://s2.coinmarketcap.com/static/img/coins/64x64/25114.png"),
             string::utf8(b"https://cetus.zone"),
         );
+
+        let cetus_addr_2 = fa_utils::create_fungible_asset(
+            &resource_signer,
+            b"CETUS",
+            string::utf8(b"Cetus Protocol"),
+            string::utf8(b"CETUS"),
+            string::utf8(b"https://s2.coinmarketcap.com/static/img/coins/64x64/25114.png"),
+            string::utf8(b"https://cetus.zone"),
+        );
+
+        assert!(cetus_addr == cetus_addr_2, ERR_FA_NOT_MATCH);
 
         let usdc_addr = fa_utils::create_fungible_asset(
             &resource_signer,
@@ -114,9 +127,9 @@ module ciswap::test_assets {
             false,
         );
 
-        move_to<TestCoins>(
+        move_to<TestFAs>(
             &fa_admin,
-            TestCoins {
+            TestFAs {
                 cetus_addr,
                 usdc_addr,
                 busd_addr,
@@ -137,33 +150,33 @@ module ciswap::test_assets {
 
     // ───────────── Register & Mint Native APT ─────────────
     public fun register_and_mint_aptos_coin(
-        aptos_framework: &signer,
         user: &signer,
         amount: u64,
     ) {
+        let aptos_framework = account::create_signer_for_test(APTOS_FRAMEWORK);
         let (burn_cap, mint_cap) =
-            aptos_coin::initialize_for_test_without_aggregator_factory(aptos_framework);
+            aptos_coin::initialize_for_test_without_aggregator_factory(&aptos_framework);
         coin::register<AptosCoin>(user);
-        aptos_coin::mint(aptos_framework, signer::address_of(user), amount);
+        aptos_coin::mint(&aptos_framework, signer::address_of(user), amount);
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
     }
 
     // ───────────── Test 1: Mint AptosCoin ─────────────
-    #[test(user = @0xc0ffee, aptos_framework = @aptos_framework)]
-    public fun test_mint_apt(user: &signer, aptos_framework: &signer) {
+    #[test(user = @0xc0ffee)]
+    public fun test_mint_apt(user: &signer) {
         setup_tests();
         account::create_account_for_test(signer::address_of(user));
-        register_and_mint_aptos_coin(aptos_framework, user, 5_000);
+        register_and_mint_aptos_coin(user, 5_000);
         assert!(coin::balance<AptosCoin>(signer::address_of(user)) == 5_000, ERR_APT_BALANCE_MISMATCH);
     }
 
     // ───────────── Test 2: Mint Mock FA Tokens ─────────────
     #[test(user = @0xc0ffee)]
-    public fun test_mint_fa_tokens(user: &signer) acquires TestCoins {
+    public fun test_mint_fa_tokens(user: &signer) acquires TestFAs {
         setup_tests();
         init_assets();
-        let test_coins = borrow_global<TestCoins>(TESTS_ASSETS_ADMIN);
+        let test_coins = borrow_global<TestFAs>(TESTS_ASSETS_ADMIN);
 
         mint_to_address(test_coins.cetus_addr, signer::address_of(user), 100);
         mint_to_address(test_coins.usdc_addr,  signer::address_of(user), 200);
@@ -227,5 +240,14 @@ module ciswap::test_assets {
             fa_utils::balance_of(signer::address_of(user), 
             fa_addr
         ) == 50, ERR_WRAP_BALANCE_MISMATCH);
+    }
+
+    public fun setup() {
+        init_assets();
+    }
+
+    public fun get_test_fas(): (address, address, address, address) acquires TestFAs {
+        let fas = borrow_global<TestFAs>(TESTS_ASSETS_ADMIN);
+        (fas.cetus_addr, fas.usdc_addr, fas.busd_addr, fas.bnb_addr)
     }
 }
