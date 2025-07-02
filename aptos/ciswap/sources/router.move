@@ -12,6 +12,7 @@
 module ciswap::router {
     // Import the swap module for all core pool logic
     use ciswap::swap::{Self};
+    use ciswap::fa_utils::{Self};
     /// Error code for pair not created
     const E_PAIR_NOT_CREATED: u64 = 0;
 
@@ -80,6 +81,44 @@ module ciswap::router {
             sender,
             address_x, // Address of token X
             address_y, // Address of token Y
+            amount_debt_x, // Initial virtual X liquidity
+            amount_debt_y  // Initial virtual Y liquidity
+        );
+    }
+
+    // Entry point to create a new token pair pool with one coin
+    public entry fun create_pair_with_one_coin<X>(
+        sender: &signer,
+        address_y: address, // Address of token Y
+        amount_debt_x: u64, // Initial virtual X liquidity
+        amount_debt_y: u64  // Initial virtual Y liquidity
+    ) {
+        // Wrap the address of token X in the module address
+        let address_fa_x = fa_utils::fa_address_from_coin<X>();
+        // Call the swap module's create_pair function
+        swap::create_pair(
+            sender,
+            address_fa_x, // Address of token X
+            address_y, // Address of token Y
+            amount_debt_x, // Initial virtual X liquidity
+            amount_debt_y  // Initial virtual Y liquidity
+        );
+    }
+
+    // Entry point to create a new token pair pool with dual coins
+    public entry fun create_pair_with_dual_coins<X, Y>(
+        sender: &signer,
+        amount_debt_x: u64, // Initial virtual X liquidity
+        amount_debt_y: u64  // Initial virtual Y liquidity
+    ) {
+        // Wrap the address of token Y in the module address
+        let address_fa_x = fa_utils::fa_address_from_coin<X>();
+        let address_fa_y = fa_utils::fa_address_from_coin<Y>(); 
+        // Call the swap module's create_pair function
+        swap::create_pair(
+            sender,
+            address_fa_x, // Address of token X
+            address_fa_y, // Address of token Y
             amount_debt_x, // Initial virtual X liquidity
             amount_debt_y  // Initial virtual Y liquidity
         );
@@ -154,6 +193,7 @@ module ciswap::router {
     public entry fun collect_fees(
         sender: &signer,
         pool_id: u64,
+        nft_id: u64,
         recipient_addr: address
     ) {
         // Ensure the pair exists (throws if not)
@@ -162,6 +202,7 @@ module ciswap::router {
         swap::collect_fees(
             sender,
             pool_id,
+            nft_id,
             recipient_addr
         );
     }

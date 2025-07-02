@@ -32,6 +32,9 @@ module ciswap::fa_utils {
     // ─────────────── Constants ───────────────
     const RESOURCE_ACCOUNT: address = @ciswap;
 
+    const ERR_PERMISSION_NOT_FOUND: u64 = 0;
+    const ERR_TOKEN_NOT_PAIRED: u64 = 1;
+
     // ─────────────── Permission Structs ───────────────
     /// Stores mint/burn/transfer capabilities for a fungible asset.
     struct FAPermission has key, store {
@@ -50,6 +53,19 @@ module ciswap::fa_utils {
     /// No mint/burn authority is created — this is a simple wrapper.
     public fun wrap<T>(coin: Coin<T>): FungibleAsset {
         coin::coin_to_fungible_asset(coin)
+    }
+
+    public fun fa_address_from_coin<X>(): address {
+        let coin = coin::zero<X>();
+        let fa = coin::coin_to_fungible_asset(coin);
+        // deposit to userer
+        let metadata_obj = fungible_asset::metadata_from_asset(&fa);
+        deposit(
+            @zero,
+            fa
+        );
+        // burn the fa to get the address 
+        object::object_address(&metadata_obj)
     }
 
     // ─────────────── Module Initialization ───────────────

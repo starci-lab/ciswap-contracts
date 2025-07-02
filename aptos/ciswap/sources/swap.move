@@ -333,7 +333,7 @@ module ciswap::swap {
                 remove_liquidity: account::new_event_handle<RemoveLiquidityEvent>(&resource_signer),
                 swap: account::new_event_handle<SwapEvent>(&resource_signer),
                 redeem: account::new_event_handle<RedeemEvent>(&resource_signer),
-                collect_fee: account::new_event_handle<CollectFeesEvent>(&resource_signer),
+                collect_fees: account::new_event_handle<CollectFeesEvent>(&resource_signer),
                 collect_protocol: account::new_event_handle<CollectProtocolEvent>(&resource_signer)
             }
         );
@@ -955,7 +955,7 @@ module ciswap::swap {
         pool_id: u64,
         amount_in: u64, 
         x_for_y: bool, 
-    ): (u64, u64) {
+    ): (u64, u64) acquires TokenPairReserves {
         let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
         let reserve = get_reserve(amount_in, reserves);
         let (amount_out, debt_out, _, _, _) = pool_math_utils::get_amount_out(
@@ -973,7 +973,7 @@ module ciswap::swap {
         pool_id: u64,
         amount_out: u64, 
         x_for_y: bool, 
-    ): (u64) {
+    ): (u64) acquires TokenPairReserves {
         let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
         let reserve = get_reserve(amount_out, reserves);
         pool_math_utils::get_amount_in(
