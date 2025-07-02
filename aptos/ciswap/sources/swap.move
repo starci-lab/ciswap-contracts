@@ -105,7 +105,7 @@ module ciswap::swap {
     /// - `recipient_addr`: Address receiving the real tokens
     struct RedeemEvent has drop, store {
         sender_addr: address,         // Address of the redeemer
-        pool_index: u64,              // Address of the pool
+        pool_id: u64,              // Address of the pool
         amount_debt_x: u64,        // Amount of virtual X redeemed
         amount_debt_y: u64,        // Amount of virtual Y redeemed
         redeemed_amount_x: u64,       // Amount of real X received
@@ -117,6 +117,15 @@ module ciswap::swap {
         sender_addr: address, // Address of the fee collector
         pool_id: u64,          // Address of the pool
         nft_id: u64, // ID of the LP token (NFT)
+        amount_x: u64,
+        amount_y: u64,
+        amount_debt_x: u64,
+        amount_debt_y: u64
+    }
+
+    struct CollectProtocolEvent has drop, store {
+        sender_addr: address, // Address of the fee collector
+        pool_id: u64,          // Address of the pool
         amount_x: u64,
         amount_y: u64,
         amount_debt_x: u64,
@@ -136,7 +145,8 @@ module ciswap::swap {
         remove_liquidity: EventHandle<RemoveLiquidityEvent>,
         swap: EventHandle<SwapEvent>,
         redeem: EventHandle<RedeemEvent>,
-        collect_fee: EventHandle<CollectFeeEvent>
+        collect_fee: EventHandle<CollectFeeEvent>,
+        collect_protocol: EventHandle<CollectProtocolEvent>
     }
 
     /// Stores metadata for a token pair, including balances and capabilities.
@@ -183,14 +193,14 @@ module ciswap::swap {
         metadatas: Table<u64, TokenPairMetadata>, // Mapping pool address to metadata
     }
 
-//     /// Reserve information for a token pair (real and virtual reserves).
-//     ///
-//     /// # Fields
-//     /// - `reserve_x`: Real reserve of token X
-//     /// - `reserve_y`: Real reserve of token Y
-//     /// - `reserve_debt_x`: Virtual reserve of X
-//     /// - `reserve_debt_y`: Virtual reserve of Y
-//     /// - `block_timestamp_last`: Last update timestamp
+    /// Reserve information for a token pair (real and virtual reserves).
+    ///
+    /// # Fields
+    /// - `reserve_x`: Real reserve of token X
+    /// - `reserve_y`: Real reserve of token Y
+    /// - `reserve_debt_x`: Virtual reserve of X
+    /// - `reserve_debt_y`: Virtual reserve of Y
+    /// - `block_timestamp_last`: Last update timestamp
     struct TokenPairReserve has key, store {
         reserve_x: u64, // Real reserve of token X
         reserve_y: u64, // Real reserve of token Y
@@ -311,43 +321,11 @@ module ciswap::swap {
                 remove_liquidity: account::new_event_handle<RemoveLiquidityEvent>(&resource_signer),
                 swap: account::new_event_handle<SwapEvent>(&resource_signer),
                 redeem: account::new_event_handle<RedeemEvent>(&resource_signer),
-                collect_fee: account::new_event_handle<CollectFeeEvent>(&resource_signer)
+                collect_fee: account::new_event_handle<CollectFeeEvent>(&resource_signer),
+                collect_protocol: account::new_event_handle<CollectProtocolEvent>(&resource_signer)
             }
         );
     }
-
-//     fun create_collection<X,Y>(creator: &signer) {
-//         let royalty = option::none();
-//         // Maximum supply cannot be changed after collection creation
-//         collection::create_unlimited_collection(
-//             creator,
-//             string::utf8(b"My Collection Description"),
-//             max_supply,
-//             string::utf8(b"My Collection"),
-//             royalty,
-//             string::utf8(b"https://mycollection.com"),
-//         );
-// }
-
-//     /// Registers the LP token type for a pair in the coin module.
-//     ///
-//     /// # Type Parameters
-//     /// - `X`, `Y`: Token types for the LP token
-//     /// # Arguments
-//     /// - `sender`: The signer to register the coin store
-//     public fun register_lp<X, Y>(sender: &signer) {
-//         coin::register<LPToken<X, Y>>(sender);
-//     }
-
-//     /// Registers the virtual token type for a pair in the coin module.
-//     ///
-//     /// # Type Parameters
-//     /// - `X`, `Y`: Token types for the virtual token
-//     /// # Arguments
-//     /// - `sender`: The signer to register the coin store
-//     public fun register_debt_x<X,Y>(sender: &signer) {
-//         coin::register<VirtualX<X,Y>>(sender);
-//     }
 
     /// Checks if a pair is already created for the given pool address.
     ///
@@ -678,73 +656,101 @@ module ciswap::swap {
 //         coin::extract(&mut metadata.balance_debt_y, amount)
 //     }
 
-//     /// Redeems virtual tokens for real tokens, transferring them to the recipient
-//     public fun redeem<X, Y>(
-//         sender: &signer,
-//         pool_index: u64,
-//         amount_debt_x: u64,
-//         amount_debt_y: u64,
-//         recipient_addr: address
-//     ): (
-//         u64, 
-//         u64
-//     ) acquires TokenPairMetadatas, TokenPairReserves, PairEventHolder {
-//         // Get references to metadata and reserves
-//         let sender_addr = signer::address_of(sender);
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let reserves = borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata_mut<X, Y>(pool_index, metadatas);
-//         let reserve = get_reserve_mut<X, Y>(pool_index, reserves);
-//         // Withdraw virtual tokens from sender
-//         let coin_debt_x = coin::withdraw<VirtualX<X, Y>>(sender, amount_debt_x);
-//         let coin_debt_y = coin::withdraw<VirtualX<Y, X>>(sender, amount_debt_y);
-//         // Calculate the real tokens to be redeemed
-//         let redeemed_amount_x = pool_math_utils::get_redeemed_amount(amount_debt_x);
-//         let redeemed_amount_y = pool_math_utils::get_redeemed_amount(amount_debt_y);
-//         // Ensure the pool has enough real tokens to redeem
-//         assert!(coin::value(&metadata.balance_debt_x) >= redeemed_amount_x, ERR_REDEMPTION_NOT_ENOUGH);
-//         assert!(coin::value(&metadata.balance_debt_y) >= redeemed_amount_y, ERR_REDEMPTION_NOT_ENOUGH);
-//         // Burn the virtual tokens
-//         coin::burn<VirtualX<X, Y>>(coin_debt_x, &mut metadata.burn_debt_x_cap);
-//         coin::burn<VirtualX<Y, X>>(coin_debt_y, &mut metadata.burn_debt_y_cap);
-//         // Mint new virtual tokens to the pool to maintain liquidity
-//         let redeemed_x = coin::mint<VirtualX<X, Y>>(redeemed_amount_x, &mut metadata.mint_debt_x_cap);
-//         let redeemed_y = coin::mint<VirtualX<Y, X>>(redeemed_amount_y, &mut metadata.mint_debt_y_cap);
-//         // Add the new virtual tokens to the pool's balance
-//         coin::merge(&mut metadata.balance_debt_x, redeemed_x);
-//         coin::merge(&mut metadata.balance_debt_y, redeemed_y);
-//         // Extract real tokens from the pool and deposit to recipient
-//         let coin_x = extract_x<X, Y>(redeemed_amount_x, metadata);
-//         let coin_y = extract_y<X, Y>(redeemed_amount_y, metadata);
-//         coin::deposit(recipient_addr, coin_x);
-//         coin::deposit(recipient_addr, coin_y);
-//         // Update the reserves to reflect the redemption
-//         update<X, Y>(
-//             reserve.reserve_x - redeemed_amount_x,
-//             reserve.reserve_y - redeemed_amount_y,
-//             reserve.reserve_debt_x + redeemed_amount_x,
-//             reserve.reserve_debt_y + redeemed_amount_y,
-//             reserve
-//         );
-
-//         // Emit the redeem event
-//         event::emit_event<RedeemEvent<X, Y>>(
-//             &mut borrow_global_mut<PairEventHolder<X, Y>>(RESOURCE_ACCOUNT).redeem,
-//             RedeemEvent {
-//                 sender_addr,
-//                 pool_index,
-//                 amount_debt_x,
-//                 amount_debt_y,
-//                 redeemed_amount_x,
-//                 redeemed_amount_y,
-//                 recipient_addr
-//             }
-//         );
-//         (
-//             redeemed_amount_x, 
-//             redeemed_amount_y
-//         )
-//     }
+    /// Redeems virtual tokens for real tokens, transferring them to the recipient
+    public fun redeem<X, Y>(
+        sender: &signer,
+        pool_id: u64,
+        amount_debt_x: u64,
+        amount_debt_y: u64,
+        recipient_addr: address
+    ): (
+        u64, 
+        u64
+    ) acquires TokenPairMetadatas, TokenPairReserves, PairEventHolder {
+        // Get references to metadata and reserves
+        let sender_addr = signer::address_of(sender);
+        let resource_signer = package_manager::get_resource_signer();
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata_mut(pool_id, metadatas);
+        let reserve = get_reserve_mut(pool_id, reserves);
+        // Ensure the amounts are valid
+        let redeemed_amount_x = pool_math_utils::get_redeemed_amount(amount_debt_x);
+        let redeemed_amount_y = pool_math_utils::get_redeemed_amount(amount_debt_y);
+        // Ensure the pool has enough real tokens to redeem
+        assert!(
+            fungible_asset::balance(metadata.store_debt_x) >= redeemed_amount_x, 
+            ERR_REDEMPTION_NOT_ENOUGH
+        );
+        assert!(
+            fungible_asset::balance(metadata.store_debt_y) >= redeemed_amount_y, 
+            ERR_REDEMPTION_NOT_ENOUGH
+        );
+        // Burn the debt tokens from the sender
+        fa_utils::burn_from_primary_store(
+            signer::address_of(sender),
+            fa_utils::get_address_from_store(metadata.store_debt_x),
+            amount_debt_x,
+        );
+        fa_utils::burn_from_primary_store(
+            signer::address_of(sender),
+            fa_utils::get_address_from_store(metadata.store_debt_y),
+            amount_debt_y,
+        );
+        // Mint new virtual tokens to the pool to maintain liquidity
+        let redeemed_debt_x = fa_utils::mint(
+            fa_utils::get_address_from_store(metadata.store_debt_x),
+            amount_debt_x
+        );
+        let redeemed_y = fa_utils::mint(
+            fa_utils::get_address_from_store(metadata.store_debt_y),
+            amount_debt_y
+        );
+        fungible_asset::deposit(
+            metadata.store_debt_x,
+            redeemed_debt_x
+        );
+        fungible_asset::deposit(
+            metadata.store_debt_y,
+            redeemed_y
+        );
+        // Extract real tokens from the pool and deposit to recipient
+        let fa_x = fungible_asset::withdraw(
+            &resource_signer,
+            metadata.store_debt_x, 
+            redeemed_amount_x
+        );
+        let fa_y = fungible_asset::withdraw(
+            &resource_signer,
+            metadata.store_debt_y, 
+            redeemed_amount_y
+        );
+        fa_utils::deposit(
+            recipient_addr,
+            fa_x
+        );
+        fa_utils::deposit(
+            recipient_addr,
+            fa_y
+        );
+        // Emit the redeem event
+        event::emit_event<RedeemEvent>(
+            &mut borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT).redeem,
+            RedeemEvent {
+                sender_addr,
+                pool_id,
+                amount_debt_x,
+                amount_debt_y,
+                redeemed_amount_x,
+                redeemed_amount_y,
+                recipient_addr
+            }
+        );
+        (
+            redeemed_amount_x, 
+            redeemed_amount_y
+        )
+    }
 
     /// Returns the current reserves (real and virtual) for a pool
     public fun token_reserves(
@@ -969,29 +975,29 @@ module ciswap::swap {
         };
     }
 
-//     /// Sets the admin address (admin only)
-//     public entry fun set_admin(sender: &signer, new_admin: address) acquires SwapInfo {
-//         let sender_addr = signer::address_of(sender);
-//         let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
-//         assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN);
-//         swap_info.admin = new_admin;
-//     }
+    /// Sets the admin address (admin only)
+    public entry fun set_admin(sender: &signer, new_admin: address) acquires SwapInfo {
+        let sender_addr = signer::address_of(sender);
+        let swap_info = borrow_global_mut<SwapInfo>(RESOURCE_ACCOUNT);
+        assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN);
+        swap_info.admin = new_admin;
+    }
 
-//     /// Upgrades the swap module by publishing new code (admin only)
-//     public entry fun upgrade_swap(
-//         sender: &signer, 
-//         metadata_serialized: vector<u8>, 
-//         code: vector<vector<u8>>
-//     ) acquires SwapInfo {
-//         let sender_addr = signer::address_of(sender);
-//         let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
-//         assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN);
-//         let resource_signer = account::create_signer_with_capability(&swap_info.signer_cap);
-//         code::publish_package_txn(&resource_signer, metadata_serialized, code);
-//     }
+    /// Upgrades the swap module by publishing new code (admin only)
+    public entry fun upgrade_swap(
+        sender: &signer, 
+        metadata_serialized: vector<u8>, 
+        code: vector<vector<u8>>
+    ) acquires SwapInfo {
+        let sender_addr = signer::address_of(sender);
+        let resource_signer = package_manager::get_resource_signer();
+        let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
+        assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN);
+        code::publish_package_txn(&resource_signer, metadata_serialized, code);
+    }
 
-//     /// Updates the reserves for a pool with new balances and timestamp
-    /// Includes safety checks to prevent overflow/underflow
+    // Updates the reserves for a pool with new balances and timestamp
+    // Includes safety checks to prevent overflow/underflow
     fun update(
         balance_x: u64, 
         balance_y: u64, 
@@ -1518,6 +1524,50 @@ module ciswap::swap {
         let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
         let metadata = get_metadata(pool_id, metadatas);
         fa_utils::get_address_from_store(metadata.store_debt_y)
+    }
+
+    // Asserts that the sender is the admin of the swap module
+    public fun assert_admin(sender: &signer, swap_info: &SwapInfo) {
+        let sender_addr = signer::address_of(sender);
+        assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN)
+    }
+
+    // Collects protocol fees from a pool and deposits them to the fee recipient
+    public entry fun collect_protocol(
+        sender: &signer,
+        pool_id: u64,
+    ) acquires TokenPairMetadatas, SwapInfo {
+        let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
+        assert_admin(sender, swap_info);
+        let resource_signer = package_manager::get_resource_signer();
+        // Get metadata for the pool
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata_mut(pool_id, metadatas);
+
+        // Collect protocol fees from the pool
+        let fa_x = fungible_asset::withdraw(&resource_signer, metadata.store_protocol_fee_x, fungible_asset::balance(metadata.store_protocol_fee_x));
+        let fa_y = fungible_asset::withdraw(&resource_signer, metadata.store_protocol_fee_y, fungible_asset::balance(metadata.store_protocol_fee_y));
+        let fa_debt_x = fungible_asset::withdraw(&resource_signer, metadata.store_protocol_fee_debt_x, fungible_asset::balance(metadata.store_protocol_fee_debt_x));
+        let fa_debt_y = fungible_asset::withdraw(&resource_signer, metadata.store_protocol_fee_debt_y, fungible_asset::balance(metadata.store_protocol_fee_debt_y));
+
+        // Deposit collected fees to sender's account
+        fa_utils::deposit(swap_info.fee_to, fa_x);
+        fa_utils::deposit(swap_info.fee_to, fa_y);
+        fa_utils::deposit(swap_info.fee_to, fa_debt_x);
+        fa_utils::deposit(swap_info.fee_to, fa_debt_y);
+
+        // Emit event for protocol fee collection
+        event::emit_event<CollectProtocolEvent>(
+            &mut borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT).collect_protocol,
+            CollectProtocolEvent {
+                sender_addr: signer::address_of(sender),
+                pool_id,
+                amount_x: fungible_asset::balance(metadata.store_protocol_fee_x),
+                amount_y: fungible_asset::balance(metadata.store_protocol_fee_y),
+                amount_debt_x: fungible_asset::balance(metadata.store_protocol_fee_debt_x),
+                amount_debt_y: fungible_asset::balance(metadata.store_protocol_fee_debt_y)
+            }
+        );
     }
 
     /// Test-only function to initialize the module (for unit tests)

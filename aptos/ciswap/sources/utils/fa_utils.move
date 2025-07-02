@@ -161,6 +161,16 @@ module ciswap::fa_utils {
         primary_fungible_store::deposit(recipient_addr, fa)
     }
 
+    public fun burn_from_primary_store(
+        user_addr: address,
+        fa_address: address,
+        amount: u64
+    ) acquires FAPermissions {
+        let permissions = &borrow_global<FAPermissions>(RESOURCE_ACCOUNT).permissions;
+        let permission = table::borrow(permissions, fa_address);
+        primary_fungible_store::burn(&permission.burn_ref, user_addr, amount);
+    }
+
     // ─────────────── Test Harness ───────────────
     /// Testing-only initializer for the FA module.
     #[test_only]
