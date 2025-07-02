@@ -60,10 +60,8 @@ module ciswap::fa_utils {
         let fa = coin::coin_to_fungible_asset(coin);
         // deposit to userer
         let metadata_obj = fungible_asset::metadata_from_asset(&fa);
-        deposit(
-            @zero,
-            fa
-        );
+        // we do a trick, we deposit the FA to the zero address
+        fungible_asset::destroy_zero(fa);
         // burn the fa to get the address 
         object::object_address(&metadata_obj)
     }
