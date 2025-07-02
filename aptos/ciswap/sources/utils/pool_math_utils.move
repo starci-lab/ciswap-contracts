@@ -355,7 +355,7 @@ module ciswap::pool_math_utils {
     public fun get_extracted_fees(
         fee_amount: u64,
     ): (u64, u64) {
-        let protocol_fee = (fee_amount * (1_000_000 - LP_FEE)) / 1_000_000; // 90% goes to protocol
+        let protocol_fee = (fee_amount * LP_FEE) / 1_000_000; // 90% goes to protocol
         let lp_fee = fee_amount - protocol_fee; // 10% goes to LPs
         (protocol_fee, lp_fee)
     }

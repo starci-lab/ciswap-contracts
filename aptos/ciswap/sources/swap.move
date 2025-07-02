@@ -1472,6 +1472,54 @@ module ciswap::swap {
         )
     }
 
+    public fun get_fees(pool_id: u64): (
+        u64, // fee_x
+        u64, // fee_y
+        u64, // debt_fee_x
+        u64,  // debt_fee_y
+        u64, // protocol_fee_x
+        u64,  // protocol_fee_y
+        u64, // protocol_fee_debt_x
+        u64  // protocol_fee_debt_y
+    ) acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        (
+            fungible_asset::balance(metadata.store_fee_x),
+            fungible_asset::balance(metadata.store_fee_y),
+            fungible_asset::balance(metadata.store_fee_debt_x),    
+            fungible_asset::balance(metadata.store_fee_debt_y),
+            fungible_asset::balance(metadata.store_protocol_fee_x),
+            fungible_asset::balance(metadata.store_protocol_fee_y),
+            fungible_asset::balance(metadata.store_protocol_fee_debt_x),
+            fungible_asset::balance(metadata.store_protocol_fee_debt_y)
+        )
+    }
+
+    public fun get_address_x(pool_id: u64): address acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        fa_utils::get_address_from_store(metadata.store_x)
+    }
+
+    public fun get_address_y(pool_id: u64): address acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        fa_utils::get_address_from_store(metadata.store_y)
+    }
+
+    public fun get_address_debt_x(pool_id: u64): address acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        fa_utils::get_address_from_store(metadata.store_debt_x)
+    }
+
+    public fun get_address_debt_y(pool_id: u64): address acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        fa_utils::get_address_from_store(metadata.store_debt_y)
+    }
+
     /// Test-only function to initialize the module (for unit tests)
     #[test_only]
     public fun init_for_test() {

@@ -52,8 +52,8 @@ module ciswap::tests_add_liquidity {
         swap::add_liquidity(
             user,
             0, // Pool ID
-            100_000_000, // Amount of token A (e.g., 1 CETUS)
-            50_000_000, // Amount of token B (e.g., 1 USDC)
+            200_000_000, // Amount of token A (e.g., 2 CETUS)
+            100_000_000, // Amount of token B (e.g., 1 USDC)
         );
     }
 
