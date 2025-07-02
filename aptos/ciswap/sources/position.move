@@ -1,3 +1,9 @@
+// ===============================================
+//  CiSwap Position Module
+//  ----------------------------------------------
+//  Manages LP NFT positions for liquidity providers
+// ===============================================
+
 module ciswap::position {
     //! Converts legacy `coin<T>` tokens into their object-based `fungible_asset` equivalents
     use std::signer::{ Self };
@@ -13,34 +19,40 @@ module ciswap::position {
     use aptos_framework::table::{ Self, Table };
     use ciswap::package_manager::{ Self };
 
+    // -------------------- Structs --------------------
+    /// Metadata for an LP NFT collection for a specific pool.
     struct CollectionMetadata has key, store {
-        name: String,
-        next_nft_id: u64,
-        positions: Table<u64, Position>,
+        name: String, // Name of the collection
+        next_nft_id: u64, // Next NFT ID to be minted
+        positions: Table<u64, Position>, // Mapping from NFT ID to Position
     }
 
+    /// Represents a single LP position (NFT) in a pool.
     struct Position has key, store {
-        pool_id: u64,
-        k_sqrt_added: u64,
-        fee_growth_inside_x: u128,
-        fee_growth_inside_y: u128,
-        fee_growth_inside_debt_x: u128,
-        fee_growth_inside_debt_y: u128,
-        fee_owed_x: u64,
-        fee_owed_y: u64,
-        fee_owed_debt_x: u64,
-        fee_owed_debt_y: u64,
-        burn_ref: BurnRef,
-        mutator_ref: MutatorRef
+        pool_id: u64, // Pool this position belongs to
+        k_sqrt_added: u64, // Amount of liquidity provided (sqrt K)
+        fee_growth_inside_x: u128, // Fee growth for X at the time of mint
+        fee_growth_inside_y: u128, // Fee growth for Y at the time of mint
+        fee_growth_inside_debt_x: u128, // Fee growth for virtual X at the time of mint
+        fee_growth_inside_debt_y: u128, // Fee growth for virtual Y at the time of mint
+        fee_owed_x: u64, // Fees owed in X
+        fee_owed_y: u64, // Fees owed in Y
+        fee_owed_debt_x: u64, // Fees owed in virtual X
+        fee_owed_debt_y: u64, // Fees owed in virtual Y
+        burn_ref: BurnRef, // Burn capability for the NFT
+        mutator_ref: MutatorRef // Mutator capability for the NFT
     }
 
+    // Error code for LP NFT not owned by the user
     const ERR_LP_NFT_NOT_OWNED: u64 = 0x1;
 
+    /// Stores all LP NFT collections for all pools.
     struct CollectionMetadatas has key, store {
-        metadatas: Table<u64, CollectionMetadata>,
+        metadatas: Table<u64, CollectionMetadata>, // Mapping from pool_id to CollectionMetadata
     }
 
-    /// Initializes the package manager module exactly once
+    // -------------------- Initialization --------------------
+    /// Initializes the position module by creating the CollectionMetadatas resource.
     fun init_module(_: &signer) {
         let resource_signer = package_manager::get_resource_signer();
         move_to(
@@ -51,6 +63,8 @@ module ciswap::position {
         );
     }
 
+    // -------------------- Collection Management --------------------
+    /// Creates a new LP NFT collection for a pool.
     public fun create_collection(
         pool_id: u64,
     )  acquires CollectionMetadatas {
@@ -83,6 +97,7 @@ module ciswap::position {
         );
     }   
 
+    /// Helper to create a unique NFT name for a position.
     fun make_nft_name(pool_id: u64, next_nft_id: u64): string::String {
         let nft_name: string::String = string::utf8(b"CiSwap LP-");
         string::append(&mut nft_name, u64_utils::u64_to_string(pool_id));
@@ -91,6 +106,9 @@ module ciswap::position {
         nft_name
     }
 
+    // -------------------- NFT Minting/Updating --------------------
+    /// Mints a new LP NFT for a user, or updates an existing one if present.
+    /// Transfers the NFT to the user.
     public fun create_then_transfer_or_update_lp_nft(
         user: &signer,
         pool_id: u64,
@@ -105,12 +123,12 @@ module ciswap::position {
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
         let positions = &mut collection_metadata.positions;
         if (table::contains(positions, collection_metadata.next_nft_id)) {
-            // update the existing position
+            // If the NFT already exists, update the liquidity amount
             let position = table::borrow_mut(positions, collection_metadata.next_nft_id);
             position.k_sqrt_added = position.k_sqrt_added + k_sqrt_added;
             return;
         };
-        // create a new position
+        // Otherwise, mint a new NFT position
         let royalty = option::none();
         let nft_name = make_nft_name(pool_id, collection_metadata.next_nft_id);
         let nft_constructor_ref = &token::create_named_token(
@@ -159,6 +177,8 @@ module ciswap::position {
         collection_metadata.next_nft_id = collection_metadata.next_nft_id + 1;
     }
 
+    // -------------------- Ownership Assertion --------------------
+    /// Asserts that a user owns a specific LP NFT for a pool.
     fun assert_lp_nft_ownership(
         user_addr: address,
         pool_id: u64,
@@ -179,6 +199,8 @@ module ciswap::position {
         );
     }
 
+    // -------------------- Position Info --------------------
+    /// Returns all fee and liquidity info for a user's position (LP NFT) in a pool.
     public fun get_position_info(
         user_addr: address,
         pool_id: u64,
@@ -206,7 +228,7 @@ module ciswap::position {
             nft_id,
             collection_metadata.name
         );
-        // Overwrite the fee owed values
+        // Return all relevant position info
         (
             position.k_sqrt_added,
             position.fee_growth_inside_x,
@@ -220,6 +242,8 @@ module ciswap::position {
         )
     }
 
+    // -------------------- Fee Update --------------------
+    /// Updates the fee owed fields for a user's position (LP NFT).
     public fun update_position_fee_owed(
         user_addr: address,
         pool_id: u64,

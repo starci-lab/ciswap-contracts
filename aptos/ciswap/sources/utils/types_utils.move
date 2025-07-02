@@ -1,3 +1,9 @@
+/// ===============================================
+///  CiSwap Types Utils Module
+///  ----------------------------------------------
+///  Type comparison and sorting helpers for token types
+/// ===============================================
+
 /// Type utilities for CiSwap: provides type comparison and sorting helpers
 module ciswap::types_utils {
     use aptos_std::comparator::{Self};

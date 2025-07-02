@@ -1,3 +1,9 @@
+/// ===============================================
+///  CiSwap Pool Math Utils Module
+///  ----------------------------------------------
+///  Mathematical utilities for pool logic and AMM calculations
+/// ===============================================
+
 /// Pool math utilities for CiSwap: provides all mathematical operations for pool logic
 module ciswap::pool_math_utils {
     use aptos_framework::math128::{Self};

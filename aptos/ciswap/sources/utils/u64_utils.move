@@ -1,3 +1,11 @@
+// ===============================================
+//  CiSwap U64 Utils Module
+//  ----------------------------------------------
+//  Utilities for working with u64 values
+// ===============================================
+
+// This module provides helper functions for converting u64 values to strings and related utilities.
+
 module ciswap::u64_utils {
     use std::string;
     use std::vector;

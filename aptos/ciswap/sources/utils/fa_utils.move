@@ -7,6 +7,15 @@ module ciswap::fa_utils {
     //! permissioning for minting, burning, and transferring FA tokens.
     //! ===============================================================
 
+    // ===============================================
+    //  CiSwap FA Utils Module
+    //  ----------------------------------------------
+    //  Utilities for working with fungible assets (FA) and permissions
+    // ===============================================
+
+    // This module provides helper functions for working with the object-based fungible asset (FA) standard,
+    // including minting, burning, creating stores, and permission management for FA tokens.
+
     // ─────────────── Imports ───────────────
     use std::signer::{Self};
     use aptos_framework::coin::{Self, Coin};

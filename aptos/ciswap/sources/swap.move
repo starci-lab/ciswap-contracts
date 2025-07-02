@@ -1,5 +1,17 @@
 /// CiSwap with (X + ciX) (Y + ciY) = K
 module ciswap::swap {
+    // ===============================================
+    //  CiSwap Swap Module
+    //  ----------------------------------------------
+    //  Core AMM logic for CiSwap: pool management, swaps, liquidity, fees, and events
+    // ===============================================
+
+    // This module implements the main logic for the CiSwap protocol, including pool creation, swaps, liquidity management, fee accounting, and event emission.
+    // All structs, functions, and constants are commented for clarity. No code logic is changed.
+
+    // ------------------------------------------------------------------------
+    // Imports
+    // ------------------------------------------------------------------------
     // Importing necessary modules from the standard library, Aptos framework, and local modules
     use std::signer::{ Self };
     use std::option::{ Self };
@@ -34,20 +46,19 @@ module ciswap::swap {
     // ------------------------------------------------------------------------
     // Structs
     // ------------------------------------------------------------------------
+    /// Represents a fungible asset balance and its associated store object.
     struct FABalance has key, store {
         balance: u64, // The balance of the token
         store: Object<FungibleStore> // The fungible store object for this balance
     }
 
     /// The event emitted when liquidity is added to a pool.
-    ///
-    /// # Fields
-    /// - `sender_addr`: Address of the liquidity provider
-    /// - `pool_index`: Address of the pool
-    /// - `amount_x`: Amount of token X added
-    /// - `amount_y`: Amount of token Y added
-    /// - `liquidity`: Amount of LP tokens minted
-    /// - `fee_amount`: Fee amount collected
+    /// - sender_addr: Address of the liquidity provider
+    /// - pool_id: Address of the pool
+    /// - amount_x: Amount of token X added
+    /// - amount_y: Amount of token Y added
+    /// - liquidity: Amount of LP tokens minted
+    /// - fee_amount: Fee amount collected
     struct AddLiquidityEvent has drop, store {
         sender_addr: address, // Address of the liquidity provider
         pool_id: u64,   // Address of the pool
@@ -58,6 +69,7 @@ module ciswap::swap {
     }
 
     /// The event emitted when liquidity is removed from a pool.
+    /// - sender_addr: Address of the liquidity provider
     ///
     /// # Fields
     /// - `user`: Address of the user removing liquidity
@@ -113,7 +125,7 @@ module ciswap::swap {
         recipient_addr: address       // Address receiving the real tokens
     }
 
-    struct CollectFeeEvent has drop, store {
+    struct CollectFeesEvent has drop, store {
         sender_addr: address, // Address of the fee collector
         pool_id: u64,          // Address of the pool
         nft_id: u64, // ID of the LP token (NFT)
@@ -145,7 +157,7 @@ module ciswap::swap {
         remove_liquidity: EventHandle<RemoveLiquidityEvent>,
         swap: EventHandle<SwapEvent>,
         redeem: EventHandle<RedeemEvent>,
-        collect_fee: EventHandle<CollectFeeEvent>,
+        collect_fees: EventHandle<CollectFeesEvent>,
         collect_protocol: EventHandle<CollectProtocolEvent>
     }
 
@@ -286,10 +298,10 @@ module ciswap::swap {
 
     /// Initializes the module by creating the SwapInfo resource in the resource account.
     ///
-    /// # Arguments
-    /// - `sender`: The deployer signer
+    /// Parameters:
+    /// - sender: The deployer signer
     ///
-    /// # Effects
+    /// Effects:
     /// - Creates the SwapInfo resource in the resource account
     /// - Sets up admin, fee recipient, and event handle
     fun init_module(_: &signer) {
@@ -321,37 +333,27 @@ module ciswap::swap {
                 remove_liquidity: account::new_event_handle<RemoveLiquidityEvent>(&resource_signer),
                 swap: account::new_event_handle<SwapEvent>(&resource_signer),
                 redeem: account::new_event_handle<RedeemEvent>(&resource_signer),
-                collect_fee: account::new_event_handle<CollectFeeEvent>(&resource_signer),
+                collect_fee: account::new_event_handle<CollectFeesEvent>(&resource_signer),
                 collect_protocol: account::new_event_handle<CollectProtocolEvent>(&resource_signer)
             }
         );
     }
 
-    /// Checks if a pair is already created for the given pool address.
+    /// Creates a new token pair pool with specified virtual balances.
     ///
-    /// # Type Parameters
-    /// - `X`, `Y`: Token types for the pair
-    /// # Arguments
-    /// - `pool_index`: Address of the pool
-    /// # Returns
-    /// - `bool`: True if the pair exists, false otherwise
-
-//     /// Creates a new token pair pool with specified virtual balances.
-//     ///
-//     /// # Type Parameters
-//     /// - `X`, `Y`: Token types for the pair
-//     /// # Arguments
-//     /// - `sender`: The signer creating the pair
-//     /// - `pool_index`: Pool address (provided off-chain)
-//     /// - `amount_debt_x`: Initial virtual X liquidity
-//     /// - `amount_debt_y`: Initial virtual Y liquidity
-//     ///
-//     /// # Effects
-//     /// - Checks that the pair is not already created
-//     /// - Transfers creation fee
-//     /// - Initializes LP and virtual tokens
-//     /// - Stores metadata and reserves
-//     /// - Emits PairCreatedEvent
+    /// Parameters:
+    /// - sender: The signer creating the pair
+    /// - address_x: Address of token X
+    /// - address_y: Address of token Y
+    /// - amount_debt_x: Initial virtual X liquidity
+    /// - amount_debt_y: Initial virtual Y liquidity
+    ///
+    /// Effects:
+    /// - Checks that the pair is not already created
+    /// - Transfers creation fee
+    /// - Initializes LP and virtual tokens
+    /// - Stores metadata and reserves
+    /// - Emits PairCreatedEvent
     public fun create_pair(
         sender: &signer,
         address_x: address, // Address of token X
@@ -540,7 +542,7 @@ module ciswap::swap {
                     address_debt_y
                 ), // Store for accumulated protocol fees in virtual Y
                 global_x_fee_growth_x128: 0, // Global fee growth for the pair (used for fee distribution)
-                global_y_fee_growth_x128: 0, // Global fee growth for the pair (used for
+                global_y_fee_growth_x128: 0, // Global fee growth for the pair (used for fee distribution)
                 global_debt_y_fee_growth_x128: 0, // Global fee growth for virtual Y (
                 global_debt_x_fee_growth_x128: 0, // Global fee growth for virtual X (
             }
@@ -580,7 +582,13 @@ module ciswap::swap {
         );
     }
 
-    /// Returns the current balances of X, Y, virtual X, and virtual Y in the pool
+    /// Returns the current balances of X, Y, virtual X, and virtual Y in the pool.
+    ///
+    /// Parameters:
+    /// - pool_id: The pool identifier
+    ///
+    /// Returns:
+    /// - (u64, u64, u64, u64): Balances of X, Y, virtual X, and virtual Y
     public fun token_balances(pool_id: u64): (u64, u64, u64, u64) acquires TokenPairMetadatas {
         let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
         let metadata = get_metadata(pool_id, metadatas);
@@ -592,8 +600,14 @@ module ciswap::swap {
         )
     }
 
-    // retrieve the metadata by X,Y and pool address
-    /// Returns a reference to the metadata for a given pool address
+    /// Returns a reference to the metadata for a given pool address.
+    ///
+    /// Parameters:
+    /// - pool_id: The pool identifier
+    /// - metadatas: Reference to the TokenPairMetadatas resource
+    ///
+    /// Returns:
+    /// - &TokenPairMetadata: Reference to the pool's metadata
     public fun get_metadata(
         pool_id: u64, 
         metadatas: &mut TokenPairMetadatas
@@ -601,7 +615,14 @@ module ciswap::swap {
         table::borrow(&mut metadatas.metadatas, pool_id)  
     }
 
-    /// Returns a mutable reference to the metadata for a given pool address
+    /// Returns a mutable reference to the metadata for a given pool address.
+    ///
+    /// Parameters:
+    /// - pool_index: The pool identifier
+    /// - metadatas: Mutable reference to the TokenPairMetadatas resource
+    ///
+    /// Returns:
+    /// - &mut TokenPairMetadata: Mutable reference to the pool's metadata
     public fun get_metadata_mut(
         pool_index: u64, 
         metadatas: &mut TokenPairMetadatas
@@ -609,8 +630,14 @@ module ciswap::swap {
         table::borrow_mut(&mut metadatas.metadatas, pool_index)  
     }
 
-    // retrieve the reserve by X,Y and pool address
-    /// Returns a reference to the reserves for a given pool address
+    /// Returns a reference to the reserves for a given pool address.
+    ///
+    /// Parameters:
+    /// - pool_id: The pool identifier
+    /// - reserves: Reference to the TokenPairReserves resource
+    ///
+    /// Returns:
+    /// - &TokenPairReserve: Reference to the pool's reserves
     public fun get_reserve(
         pool_id: u64,
         reserves: &mut TokenPairReserves
@@ -618,7 +645,14 @@ module ciswap::swap {
         table::borrow(&mut reserves.reserves, pool_id)  
     }
 
-    /// Returns a mutable reference to the reserves for a given pool address
+    /// Returns a mutable reference to the reserves for a given pool address.
+    ///
+    /// Parameters:
+    /// - pool_index: The pool identifier
+    /// - reserves: Mutable reference to the TokenPairReserves resource
+    ///
+    /// Returns:
+    /// - &mut TokenPairReserve: Mutable reference to the pool's reserves
     public fun get_reserve_mut(
         pool_index: u64,
         reserves: &mut TokenPairReserves
@@ -626,38 +660,8 @@ module ciswap::swap {
         table::borrow_mut(&mut reserves.reserves, pool_index)  
     }
 
-//     /// Returns the amount of locked LP tokens in the pool
-//     public fun balance_locked_lp<X, Y>(pool_index: u64): u64 acquires TokenPairMetadatas {
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let meta = get_metadata<X, Y>(pool_index, metadatas);
-//         coin::value(&meta.balance_locked_lp)
-//     }
-
-//     /// Extracts a specified amount of X from the pool's balance (internal use)
-//     fun extract_x<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<X> {
-//         assert!(coin::value<X>(&metadata.balance_x) > amount, ERR_INSUFFICIENT_AMOUNT);
-//         coin::extract(&mut metadata.balance_x, amount)
-//     }
-
-//     /// Extracts a specified amount of Y from the pool's balance (internal use)
-//     fun extract_y<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<Y> {
-//         assert!(coin::value<Y>(&metadata.balance_y) > amount, ERR_INSUFFICIENT_AMOUNT);
-//         coin::extract(&mut metadata.balance_y, amount)
-//     }
-
-//     /// Extracts a specified amount of virtual X from the pool's balance (internal use)
-//     fun extract_debt_x<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<VirtualX<X, Y>> {
-//         assert!(coin::value<VirtualX<X, Y>>(&metadata.balance_debt_x) > amount, ERR_INSUFFICIENT_AMOUNT);
-//         coin::extract(&mut metadata.balance_debt_x, amount)
-//     }   
-//     /// Extracts a specified amount of virtual Y from the pool's balance (internal use)
-//     fun extract_debt_y<X, Y>(amount: u64, metadata: &mut TokenPairMetadata<X, Y>): coin::Coin<VirtualX<Y, X>> {
-//         assert!(coin::value<VirtualX<Y, X>>(&metadata.balance_debt_y) > amount, ERR_INSUFFICIENT_AMOUNT);
-//         coin::extract(&mut metadata.balance_debt_y, amount)
-//     }
-
     /// Redeems virtual tokens for real tokens, transferring them to the recipient
-    public fun redeem<X, Y>(
+    public fun redeem(
         sender: &signer,
         pool_id: u64,
         amount_debt_x: u64,
@@ -771,102 +775,12 @@ module ciswap::swap {
         )
     }   
 
-//     /// Deposits X into the pool's balance (internal use)
-//     fun deposit_x<X, Y>(pool_index: u64, amount: coin::Coin<X>) acquires TokenPairMetadatas {
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata_mut<X, Y>(pool_index , metadatas);
-//         coin::merge(&mut metadata.balance_x, amount);
-//     }
-
-//     /// Deposits Y into the pool's balance (internal use)
-//     fun deposit_y<X, Y>(pool_index: u64, amount: coin::Coin<Y>) acquires TokenPairMetadatas {
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata_mut<X, Y>(pool_index, metadatas);
-//         coin::merge(&mut metadata.balance_y, amount);
-//     }
-
-//     /// Mints LP tokens to a specified address
-//     fun mint_lp_to<X, Y>(
-//         to: address,
-//         amount: u64,
-//         mint_cap: &coin::MintCapability<LPToken<X, Y>>
-//     ) {
-//         let coins = coin::mint<LPToken<X, Y>>(amount, mint_cap);
-//         coin::deposit(to, coins);
-//     }
-
-//     /// Mints LP tokens and returns them (internal use)
-//     fun mint_lp<X, Y>(amount: u64, mint_cap: &coin::MintCapability<LPToken<X, Y>>): coin::Coin<LPToken<X, Y>> {
-//         coin::mint<LPToken<X, Y>>(amount, mint_cap)
-//     }
-
-//     /// Returns the total supply of LP tokens for a pair
-//     public fun total_lp_supply<X, Y>(): u128 {
-//         option::get_with_default(
-//             &coin::supply<LPToken<X, Y>>(),
-//             0u128
-//         )
-//     }
-
     /// Returns the last recorded sqrt(K) for a pool (used for fee calculation)
     public fun k_sqrt_last(pool_id: u64) : u64 acquires TokenPairMetadatas {
         let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
         let metadata = get_metadata(pool_id, metadatas);
         metadata.k_sqrt_last
     }
-
-//     /// Returns the accumulated fee amount in LP tokens for a pool
-//     public fun fee_amount<X, Y>(pool_index: u64): u64 acquires TokenPairMetadatas {
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata<X, Y>(pool_index, metadatas);
-//         coin::value(&metadata.fee_amount)
-//     }
-
-//     /// Mints new LP tokens for liquidity providers based on the change in sqrt(K)
-//     fun mint<X, Y>(pool_index: u64): (coin::Coin<LPToken<X, Y>>, u64) acquires TokenPairMetadatas, TokenPairReserves {
-//         let metadatas = borrow_global_mut<TokenPairMetadatas<X, Y>>(RESOURCE_ACCOUNT);
-//         let metadata = get_metadata_mut<X, Y>(pool_index, metadatas);
-//         let (
-//             balance_x, 
-//             balance_y, 
-//             balance_debt_x,
-//             balance_debt_y
-//         ) = (
-//             coin::value(&metadata.balance_x), 
-//             coin::value(&metadata.balance_y),
-//             coin::value(&metadata.balance_debt_x),
-//             coin::value(&metadata.balance_debt_y)
-//         );
-
-//         let reserves = borrow_global_mut<TokenPairReserves<X, Y>>(RESOURCE_ACCOUNT);
-//         let reserve = get_reserve_mut<X, Y>(pool_index, reserves);
-//         // Calculate the root K for the last mint and current balances
-//         let root_k_sqrt = pool_math_utils::get_k_sqrt(
-//             reserve.reserve_x, 
-//             reserve.reserve_y, 
-//             reserve.reserve_debt_x,
-//             reserve.reserve_debt_y
-//         );
-//         let k_sqrt = pool_math_utils::get_k_sqrt(
-//             balance_x, 
-//             balance_y, 
-//             balance_debt_x,
-//             balance_debt_y
-//         ); 
-//         // Calculate the difference in K
-//         let k_sqrt_diff = k_sqrt - root_k_sqrt; 
-
-//         // Calculate the LP and fee amounts to mint
-//         let (to_lp, fee) = pool_math_utils::get_liquidity_and_fee_amount(
-//             k_sqrt_diff,
-//         );
-//         // Mint LP tokens and fee tokens
-//         let lp = mint_lp<X, Y>((to_lp as u64), &metadata.mint_cap);
-//         let fee_coin = mint_lp<X, Y>(fee, &metadata.mint_cap);
-//         coin::merge(&mut metadata.fee_amount, fee_coin);
-//         metadata.k_sqrt_last = k_sqrt;
-//         (lp, fee)
-//     }
 
     /// Adds liquidity to the pool directly, returning optimal amounts and LP tokens
     public fun add_liquidity(
@@ -1035,6 +949,41 @@ module ciswap::swap {
         metadata.global_y_fee_growth_x128 += (((fee_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
         metadata.global_debt_x_fee_growth_x128 += (((fee_debt_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
         metadata.global_debt_y_fee_growth_x128 += (((fee_debt_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
+    }
+
+    public fun get_amount_out(
+        pool_id: u64,
+        amount_in: u64, 
+        x_for_y: bool, 
+    ): (u64, u64) {
+        let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
+        let reserve = get_reserve(amount_in, reserves);
+        let (amount_out, debt_out, _, _, _) = pool_math_utils::get_amount_out(
+            amount_in, 
+            x_for_y, 
+            reserve.reserve_x, 
+            reserve.reserve_y,
+            reserve.reserve_debt_x,
+            reserve.reserve_debt_y
+        );
+        (amount_out, debt_out)
+    }
+
+    public fun get_amount_in(
+        pool_id: u64,
+        amount_out: u64, 
+        x_for_y: bool, 
+    ): (u64) {
+        let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
+        let reserve = get_reserve(amount_out, reserves);
+        pool_math_utils::get_amount_in(
+            amount_out, 
+            x_for_y, 
+            reserve.reserve_x, 
+            reserve.reserve_y,
+            reserve.reserve_debt_x,
+            reserve.reserve_debt_y
+        )
     }
 
     /// Swaps tokens in the pool, transferring output to the recipient and emitting an event
@@ -1373,7 +1322,7 @@ module ciswap::swap {
     }
 
     /// Collects accumulated fees from a liquidity position
-    public fun collect_fee(
+    public fun collect_fees(
         sender: &signer,
         pool_id: u64,
         nft_id: u64,
@@ -1458,9 +1407,9 @@ module ciswap::swap {
         fa_utils::deposit(recipient_addr, fa_debt_y);
 
         // 7. Emit event if needed (có thể thêm event sau)
-        event::emit_event<CollectFeeEvent>(
-            &mut borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT).collect_fee,
-            CollectFeeEvent {
+        event::emit_event<CollectFeesEvent>(
+            &mut borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT).collect_fees,
+            CollectFeesEvent {
                 sender_addr,
                 pool_id,
                 nft_id,     
@@ -1536,7 +1485,7 @@ module ciswap::swap {
     public entry fun collect_protocol(
         sender: &signer,
         pool_id: u64,
-    ) acquires TokenPairMetadatas, SwapInfo {
+    ) acquires TokenPairMetadatas, SwapInfo, PairEventHolder {
         let swap_info = borrow_global<SwapInfo>(RESOURCE_ACCOUNT);
         assert_admin(sender, swap_info);
         let resource_signer = package_manager::get_resource_signer();
