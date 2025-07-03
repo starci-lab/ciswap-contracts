@@ -65,7 +65,16 @@ module ciswap::swap {
         amount_x: u64,        // Amount of token X added
         amount_y: u64,        // Amount of token Y added
         liquidity: u64,       // Amount of LP tokens minted
-        fee_amount: u64       // Fee amount collected
+        lp_nft_addr: address // Address of the NFT position created
+    }
+
+    struct IncreaseLiquidityEvent has drop, store {
+        sender_addr: address, // Address of the liquidity provider
+        pool_id: u64,   // Address of the pool
+        amount_x: u64,        // Amount of token X added
+        amount_y: u64,        // Amount of token Y added
+        liquidity: u64,       // Amount of LP tokens minted
+        lp_nft_addr: address // Address of the NFT position created
     }
 
     /// The event emitted when liquidity is removed from a pool.
@@ -128,7 +137,7 @@ module ciswap::swap {
     struct CollectFeesEvent has drop, store {
         sender_addr: address, // Address of the fee collector
         pool_id: u64,          // Address of the pool
-        nft_id: u64, // ID of the LP token (NFT)
+        nft_addr: address, // Address of the NFT position
         amount_x: u64,
         amount_y: u64,
         amount_debt_x: u64,
@@ -154,6 +163,7 @@ module ciswap::swap {
     struct PairEventHolder has key {
         pair_created: EventHandle<PairCreatedEvent>,
         add_liquidity: EventHandle<AddLiquidityEvent>,
+        increase_liquidity: EventHandle<IncreaseLiquidityEvent>,
         remove_liquidity: EventHandle<RemoveLiquidityEvent>,
         swap: EventHandle<SwapEvent>,
         redeem: EventHandle<RedeemEvent>,
@@ -289,7 +299,8 @@ module ciswap::swap {
         address_debt_x: address, // Name of virtual token X
         address_debt_y: address, // Name of virtual token Y
         amount_debt_x: u64,    // Initial virtual X balance
-        amount_debt_y: u64     // Initial virtual Y balance
+        amount_debt_y: u64,     // Initial virtual Y balance
+        collection_addr: address // Address of the LP token collection
     }
 
     // ------------------------------------------------------------------------
@@ -334,7 +345,8 @@ module ciswap::swap {
                 swap: account::new_event_handle<SwapEvent>(&resource_signer),
                 redeem: account::new_event_handle<RedeemEvent>(&resource_signer),
                 collect_fees: account::new_event_handle<CollectFeesEvent>(&resource_signer),
-                collect_protocol: account::new_event_handle<CollectProtocolEvent>(&resource_signer)
+                collect_protocol: account::new_event_handle<CollectProtocolEvent>(&resource_signer),
+                increase_liquidity: account::new_event_handle<IncreaseLiquidityEvent>(&resource_signer),
             }
         );
     }
@@ -380,7 +392,7 @@ module ciswap::swap {
 
         // --------------------------------------------------------------------
         // 3. Create the LP token for the pair
-        position::create_collection(
+        let collection_addr = position::create_collection(
             pool_id
         );
         // --------------------------------------------------------------------
@@ -577,7 +589,8 @@ module ciswap::swap {
                 address_debt_x,
                 address_debt_y,
                 amount_debt_x,
-                amount_debt_y
+                amount_debt_y,
+                collection_addr
             }
         );
     }
@@ -783,7 +796,7 @@ module ciswap::swap {
     }
 
     /// Adds liquidity to the pool directly, returning optimal amounts and LP tokens
-    public fun add_liquidity(
+    fun add_liquidity_core(
         sender: &signer,
         pool_id: u64,
         amount_x: u64,
@@ -791,6 +804,7 @@ module ciswap::swap {
     ): (
         u64, 
         u64, 
+        u64, // k difference
     ) acquires TokenPairReserves, TokenPairMetadatas {
         let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
         let metadata = get_metadata_mut(pool_id, metadatas);
@@ -862,13 +876,6 @@ module ciswap::swap {
             reserve_debt_y
         );
         let k_diff = updated_k_sqrt - metadata.k_sqrt_last;
-
-        // create a NFT LP representing the liquidity added 
-        position::create_then_transfer_or_update_lp_nft(
-            sender,
-            pool_id,
-            k_diff
-        );
         // update the metadata
         metadata.k_sqrt_last = updated_k_sqrt;    
         // update the pool's reserves
@@ -878,6 +885,75 @@ module ciswap::swap {
             reserve_debt_x, 
             reserve_debt_y,
             reserve
+        );
+
+        (desired_x, desired_y, k_diff)
+    }
+
+    public fun add_liquidity(
+        sender: &signer,
+        pool_id: u64,
+        amount_x: u64,
+        amount_y: u64
+    ): (u64, u64) {
+        let (desired_x, desired_y, k_diff) = add_liquidity_core(
+            sender,
+            pool_id,
+            amount_x,
+            amount_y
+        );
+        // create a NFT LP representing the liquidity added 
+        let lp_nft_addr = position::create_then_transfer_lp_nft(
+            sender,
+            pool_id,
+            k_diff
+        );
+        // Emit the AddLiquidity event
+        event::emit_event<AddLiquidityEvent>(
+            &mut borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT).add_liquidity,
+            AddLiquidityEvent {
+                sender_addr: signer::address_of(sender),
+                pool_id,
+                amount_x: desired_x,
+                amount_y: desired_y,
+                liquidity: k_diff,
+                lp_nft_addr
+            }
+        );
+        (desired_x, desired_y)
+    }
+
+    public fun increase_liquidity(
+        sender: &signer,
+        pool_id: u64,
+        amount_x: u64,
+        amount_y: u64,
+        lp_nft_addr: address
+    ): (u64, u64) {
+        let (desired_x, desired_y, k_diff) = add_liquidity_core(
+            sender,
+            pool_id,
+            amount_x,
+            amount_y
+        );
+        // create a NFT LP representing the liquidity added 
+        position::increase_lp_nft(
+            sender,
+            pool_id,
+            lp_nft_addr,
+            k_diff,
+        );
+        // Emit the AddLiquidity event
+        event::emit_event<IncreaseLiquidityEvent>(
+            &mut borrow_global_mut<PairEventHolder>(RESOURCE_ACCOUNT).increase_liquidity,
+            IncreaseLiquidityEvent {
+                sender_addr: signer::address_of(sender),
+                pool_id,
+                amount_x: desired_x,
+                amount_y: desired_y,
+                liquidity: k_diff,
+                lp_nft_addr
+            }
         );
         (desired_x, desired_y)
     }
@@ -958,7 +1034,7 @@ module ciswap::swap {
     ): (u64, u64) acquires TokenPairReserves {
         let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
         let reserve = get_reserve(pool_id, reserves);
-        let (amount_out, debt_out, _, _, _) = pool_math_utils::get_amount_out(
+        let (amount_out, debt_out, _, _, _, _, _) = pool_math_utils::get_amount_out(
             amount_in, 
             x_for_y, 
             reserve.reserve_x, 
@@ -1015,7 +1091,9 @@ module ciswap::swap {
             amount_debt_out,
             amount_fee_out,
             amount_debt_fee_out,
-            k_sqrt_diff
+            k_sqrt_diff,
+            amount_out_raw,
+            amount_debt_out_raw
         ) = pool_math_utils::get_amount_out(
             amount_in, 
             x_for_y, 
@@ -1145,9 +1223,9 @@ module ciswap::swap {
             // Update pool reserves after swap
             update(
                 reserve.reserve_x + amount_in,
-                reserve.reserve_y - amount_out,
+                reserve.reserve_y - amount_out_raw,
                 reserve.reserve_debt_x,
-                reserve.reserve_debt_y - amount_debt_out,
+                reserve.reserve_debt_y - amount_debt_out_raw,
                 reserve
             );
         } else {
@@ -1256,9 +1334,9 @@ module ciswap::swap {
             );
             // Update pool reserves after swap
             update(
-                reserve.reserve_x - amount_out,
+                reserve.reserve_x - amount_out_raw,
                 reserve.reserve_y + amount_in,
-                reserve.reserve_debt_x - amount_debt_out,
+                reserve.reserve_debt_x - amount_debt_out_raw,
                 reserve.reserve_debt_y,
                 reserve
             );
@@ -1325,7 +1403,7 @@ module ciswap::swap {
     public fun collect_fees(
         sender: &signer,
         pool_id: u64,
-        nft_id: u64,
+        nft_addr: address,
         recipient_addr: address
     ) : (
         u64, // collected_fee_x
@@ -1350,7 +1428,7 @@ module ciswap::swap {
         ) = position::get_position_info(
             signer::address_of(sender),
             pool_id, 
-            nft_id
+            nft_addr
         );
         // 2. Get current global fee growth
         let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
@@ -1375,7 +1453,7 @@ module ciswap::swap {
         position::update_position_fee_growth_inside(
             signer::address_of(sender),
             pool_id,
-            nft_id,
+            nft_addr,
             metadata.global_x_fee_growth_x128,
             metadata.global_y_fee_growth_x128,
             metadata.global_debt_x_fee_growth_x128,
@@ -1385,7 +1463,7 @@ module ciswap::swap {
         position::reset_position_fee_owed(
             signer::address_of(sender),
             pool_id,
-            nft_id
+            nft_addr
         );
 
         // 6. Transfer fees to sender
@@ -1412,7 +1490,7 @@ module ciswap::swap {
             CollectFeesEvent {
                 sender_addr,
                 pool_id,
-                nft_id,     
+                nft_addr,     
                 amount_x: collected_fee_x,
                 amount_y: collected_fee_y,
                 amount_debt_x: collected_fee_debt_x,
@@ -1533,6 +1611,36 @@ module ciswap::swap {
                 amount_debt_y: fungible_asset::balance(metadata.store_protocol_fee_debt_y)
             }
         );
+    }
+
+    /// Get product of reserves for a given pool
+    /// Use to check if the reserve is altered
+    public fun get_product_reserves_sqrt(
+        pool_id: u64
+    ): u64 acquires TokenPairReserves {
+        let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
+        let reserve = get_reserve(pool_id, reserves);
+        pool_math_utils::get_k_sqrt(
+            reserve.reserve_x, 
+            reserve.reserve_y, 
+            reserve.reserve_debt_x,
+            reserve.reserve_debt_y
+        )
+    }
+
+    /// Get the reserve with balance
+    /// Use to ensure the balance is synced with reserves
+    public fun get_product_balances_sqrt(
+        pool_id: u64
+    ): u64 acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        pool_math_utils::get_k_sqrt(
+            fungible_asset::balance(metadata.store_x),
+            fungible_asset::balance(metadata.store_y),
+            fungible_asset::balance(metadata.store_debt_x),
+            fungible_asset::balance(metadata.store_debt_y)
+        )
     }
 
     /// Test-only function to initialize the module (for unit tests)

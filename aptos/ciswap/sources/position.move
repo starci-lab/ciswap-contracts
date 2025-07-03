@@ -22,9 +22,10 @@ module ciswap::position {
     // -------------------- Structs --------------------
     /// Metadata for an LP NFT collection for a specific pool.
     struct CollectionMetadata has key, store {
+        collection_addr: address, // Address of the collection
         name: String, // Name of the collection
-        next_nft_id: u64, // Next NFT ID to be minted
-        positions: Table<u64, Position>, // Mapping from NFT ID to Position
+        positions: Table<address, Position>, // Mapping from NFT Ad
+        next_nft_id: u64 // Next NFT ID to use for minting
     }
 
     /// Represents a single LP position (NFT) in a pool.
@@ -44,7 +45,9 @@ module ciswap::position {
     }
 
     // Error code for LP NFT not owned by the user
-    const ERR_LP_NFT_NOT_OWNED: u64 = 0x1;
+    const ERR_LP_NFT_NOT_OWNED: u64 = 1;
+    // Error code for LP NFT not existing in the collection
+    const ERR_LP_NFT_NOT_EXISTS: u64 = 2;
 
     /// Stores all LP NFT collections for all pools.
     struct CollectionMetadatas has key, store {
@@ -67,7 +70,7 @@ module ciswap::position {
     /// Creates a new LP NFT collection for a pool.
     public fun create_collection(
         pool_id: u64,
-    )  acquires CollectionMetadatas {
+    ): (address)  acquires CollectionMetadatas {
         let resource_account = package_manager::get_resource_signer();
         let royalty = option::none();
         // Maximum supply cannot be changed after collection creation
@@ -86,15 +89,18 @@ module ciswap::position {
             signer::address_of(&resource_account)
         );
         let collection_metadata = CollectionMetadata {
+            collection_addr: object::address_from_constructor_ref(&constructor_ref),
             name: lp_collection_name,
-            next_nft_id: 0,
-            positions: table::new<u64, Position>(),
+            positions: table::new<address, Position>(),
+            next_nft_id: 0 // Start with ID 0
         };
         table::add(
             &mut collection_metadatas.metadatas,
             pool_id,
             collection_metadata
         );
+
+        object::address_from_constructor_ref(&constructor_ref)
     }   
 
     /// Helper to create a unique NFT name for a position.
@@ -109,9 +115,10 @@ module ciswap::position {
     // -------------------- NFT Minting/Updating --------------------
     /// Mints a new LP NFT for a user, or updates an existing one if present.
     /// Transfers the NFT to the user.
-    public fun create_then_transfer_or_update_lp_nft(
+    public fun increase_lp_nft(
         user: &signer,
         pool_id: u64,
+        nft_addr: address,
         k_sqrt_added: u64,
     ) acquires CollectionMetadatas {
         let resource_account = package_manager::get_resource_signer();
@@ -120,15 +127,37 @@ module ciswap::position {
             signer::address_of(&resource_account)
         );
         // Check if the collection exists, if not, create it
+        if (!table::contains(&collection_metadatas.metadatas, pool_id)) {
+            create_collection(pool_id);
+        };
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
         let positions = &mut collection_metadata.positions;
-        if (table::contains(positions, collection_metadata.next_nft_id)) {
+        // revert if the position does not contain the nft address
+        assert!(
+            table::contains(positions, nft_addr),
+            ERR_LP_NFT_NOT_EXISTS
+        );
+        if (table::contains(positions, nft_addr)) {
             // If the NFT already exists, update the liquidity amount
-            let position = table::borrow_mut(positions, collection_metadata.next_nft_id);
+            let position = table::borrow_mut(positions, nft_addr);
             position.k_sqrt_added = position.k_sqrt_added + k_sqrt_added;
             return;
         };
-        // Otherwise, mint a new NFT position
+    }
+    
+    public fun create_then_transfer_lp_nft(
+        user: &signer,
+        pool_id: u64,
+        k_sqrt_added: u64,
+    ) : (address) acquires CollectionMetadatas {
+        let resource_account = package_manager::get_resource_signer();
+        let resource_account_addr = signer::address_of(&resource_account);
+        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
+            signer::address_of(&resource_account)
+        );
+        let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
+        let positions = &mut collection_metadata.positions;
+        // Mint a new NFT position
         let royalty = option::none();
         let nft_name = make_nft_name(pool_id, collection_metadata.next_nft_id);
         let nft_constructor_ref = &token::create_named_token(
@@ -139,6 +168,7 @@ module ciswap::position {
             royalty,
             string::utf8(b"https://ciswap.finance"),
         );
+        let nft_addr = object::address_from_constructor_ref(nft_constructor_ref);
 
         let burn_ref = token::generate_burn_ref(nft_constructor_ref);
         let mutator_ref = token::generate_mutator_ref(nft_constructor_ref);
@@ -158,7 +188,7 @@ module ciswap::position {
         };
         table::add(
             positions,
-            collection_metadata.next_nft_id,
+            nft_addr,
             position
         );
         let created_nft_addr = token::create_token_address(
@@ -173,8 +203,10 @@ module ciswap::position {
             nft, 
             signer::address_of(user)
         );
-        // transfer the NFT to the user
+        // Update the next NFT ID for this collection
         collection_metadata.next_nft_id = collection_metadata.next_nft_id + 1;
+
+        nft_addr
     }
 
     // -------------------- Ownership Assertion --------------------
@@ -182,17 +214,12 @@ module ciswap::position {
     fun assert_lp_nft_ownership(
         user_addr: address,
         pool_id: u64,
-        nft_id: u64,
+        nft_addr: address,
         collection_name: String
     ) {
         let resource_signer = package_manager::get_resource_signer();
         // Check if the user owns the NFT
-        let nft_address = token::create_token_address(
-            &signer::address_of(&resource_signer),
-            &collection_name,
-            &make_nft_name(pool_id, nft_id)
-        );
-        let nft = object::address_to_object<Token>(nft_address);
+        let nft = object::address_to_object<Token>(nft_addr);
         assert!(
             object::owner(nft) == user_addr, 
             ERR_LP_NFT_NOT_OWNED
@@ -204,7 +231,7 @@ module ciswap::position {
     public fun get_position_info(
         user_addr: address,
         pool_id: u64,
-        nft_id: u64
+        nft_address: address
     ): (
         u64,   // k_sqrt_added
         u128,  // fee_growth_inside_x
@@ -221,11 +248,11 @@ module ciswap::position {
             signer::address_of(&resource_signer)
         );
         let collection_metadata = table::borrow(&collection_metadatas.metadatas, pool_id);
-        let position = table::borrow(&collection_metadata.positions, nft_id);
+        let position = table::borrow(&collection_metadata.positions, nft_address);
         assert_lp_nft_ownership(
             user_addr,
             pool_id,
-            nft_id,
+            nft_address,
             collection_metadata.name
         );
         // Return all relevant position info
@@ -247,7 +274,7 @@ module ciswap::position {
     public fun update_position_fee_owed(
         user_addr: address,
         pool_id: u64,
-        nft_id: u64,
+        nft_addr: address,
         updated_k_sqrt_added: u64,
         updated_fee_owed_x: u64,
         updated_fee_owed_y: u64,
@@ -259,11 +286,11 @@ module ciswap::position {
             signer::address_of(&resource_signer)
         );
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
-        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_addr);
         assert_lp_nft_ownership(
             user_addr,
             pool_id,
-            nft_id,
+            nft_addr,
             collection_metadata.name
         );
         // Overwrite the fee owed values
@@ -276,7 +303,7 @@ module ciswap::position {
     public fun update_position_fee_growth_inside(
         user_addr: address,
         pool_id: u64,
-        nft_id: u64,
+        nft_addr: address,
         updated_fee_growth_inside_x: u128,
         updated_fee_growth_inside_y: u128,
         updated_fee_growth_inside_debt_x: u128,
@@ -287,11 +314,11 @@ module ciswap::position {
             signer::address_of(&resource_signer)
         );
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
-        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_addr);
         assert_lp_nft_ownership(
             user_addr,
             pool_id,
-            nft_id,
+            nft_addr,
             collection_metadata.name
         );
         // Overwrite the fee growth inside values
@@ -304,7 +331,7 @@ module ciswap::position {
     public fun update_position_k_sqrt_added(
         user_addr: address,
         pool_id: u64,
-        nft_id: u64,
+        nft_addr: address,
         updated_k_sqrt_added: u64
     ) acquires CollectionMetadatas {
         let resource_signer = package_manager::get_resource_signer();
@@ -312,11 +339,11 @@ module ciswap::position {
             signer::address_of(&resource_signer)
         );
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
-        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_addr);
         assert_lp_nft_ownership(
             user_addr,
             pool_id,
-            nft_id,
+            nft_addr,
             collection_metadata.name
         );
         // Overwrite the k_sqrt_added value
@@ -326,18 +353,18 @@ module ciswap::position {
     public fun reset_position_fee_owed(
         user_addr: address,
         pool_id: u64,
-        nft_id: u64
+        nft_addr: address
     ) acquires CollectionMetadatas {
         let resource_signer = package_manager::get_resource_signer();
         let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
             signer::address_of(&resource_signer)
         );
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
-        let position = table::borrow_mut(&mut collection_metadata.positions, nft_id);
+        let position = table::borrow_mut(&mut collection_metadata.positions, nft_addr);
         assert_lp_nft_ownership(
             user_addr,
             pool_id,
-            nft_id,
+            nft_addr,
             collection_metadata.name
         );
         // Overwrite the fee owed values to zero

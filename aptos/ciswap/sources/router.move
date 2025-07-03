@@ -155,6 +155,26 @@ module ciswap::router {
         );
     }
 
+    /// Entry point to increase liquidity in an existing pool
+    public entry fun increase_liquidity(
+        sender: &signer,
+        pool_id: u64,
+        amount_x: u64,
+        amount_y: u64,
+        lp_nft_addr: address
+    ) {
+        // Ensure the pair exists (throws if not)
+        swap::is_pool_created(pool_id);
+        // Call the swap module's increase_liquidity function
+        swap::increase_liquidity(
+            sender,
+            pool_id,
+            amount_x,
+            amount_y,
+            lp_nft_addr
+        );
+    }
+
     /// Entry point to redeem virtual tokens for real tokens from a pool
     ///
     /// # Type Parameters
@@ -193,7 +213,7 @@ module ciswap::router {
     public entry fun collect_fees(
         sender: &signer,
         pool_id: u64,
-        nft_id: u64,
+        nft_addr: address,
         recipient_addr: address
     ) {
         // Ensure the pair exists (throws if not)
@@ -202,7 +222,7 @@ module ciswap::router {
         swap::collect_fees(
             sender,
             pool_id,
-            nft_id,
+            nft_addr,
             recipient_addr
         );
     }

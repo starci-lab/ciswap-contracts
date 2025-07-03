@@ -19,6 +19,7 @@ module ciswap::tests_swap {
     use ciswap::fa_utils::{Self};
     use aptos_std::debug::{Self};
     use ciswap::u64_utils::{Self};
+    use aptos_framework::math128::{Self};
 
     
     // Error codes for test assertions
@@ -110,7 +111,7 @@ module ciswap::tests_swap {
             200_000_000 
             - (
                 (
-                    ((400_000_000u128 * 200_000_000u128) / (400_000_000u128 + 10_000_000u128)) as u64
+                    math128::ceil_div(400_000_000u128 * 200_000_000u128, 400_000_000u128 + 10_000_000u128) as u64
                 )
             )
         );
@@ -220,7 +221,7 @@ module ciswap::tests_swap {
             400_000_000 
             - (
                 (
-                    ((400_000_000u128 * 200_000_000u128) / (200_000_000u128 + 10_000_000u128)) as u64
+                    math128::ceil_div(400_000_000u128 * 200_000_000u128, 200_000_000u128 + 10_000_000u128) as u64
                 )
             )
         );
@@ -360,5 +361,61 @@ module ciswap::tests_swap {
         // // Assert the fees are correct
         // assert!(fee_y == lp_fee, ERR_FEE_Y_MISMATCH); // No fees collected yet
         // assert!(protocol_fee_y == protocol_fee, ERR_FEE_DEBT_Y_MISMATCH); // No fees collected yet
+    }
+
+    /// Test: Swap 10 times from CETUS to USDC and check the get_product_reserves_sqrt and get_product_balances_sqrt
+    #[test(
+        alice = @0x12346,
+        bob = @0x12347,
+    )]
+    fun test_swap_cetus_for_usdc_10_times(
+        alice: &signer,
+        bob: &signer
+    ) {
+        setup_tests(); // Setup the test environment
+        account::create_account_for_test(signer::address_of(alice));
+        account::create_account_for_test(signer::address_of(bob));
+        tests_create_pair::create_pair_for_test(
+            alice,
+            200_000_000, // 2 CETUS
+            100_000_000  // 1 USDC
+        ); // Initializes the add liquidity module
+        let (cetus_addr, usdc_addr, _, _) = tests_assets::get_test_fas();
+        tests_assets::mint_to_address(
+            cetus_addr,
+            signer::address_of(alice),
+            100_000_000_000, // Mint 1000 CETUS
+        );
+        tests_assets::mint_to_address(
+            usdc_addr,
+            signer::address_of(alice),
+            100_000_000_000, // Mint 1000 USDC
+        );
+        tests_add_liquidity::add_liquidity_for_test(
+            alice,
+            100_000_000_000, // 1000 CETUS
+            100_000_000_000   // 1000 USDC
+        ); // Initializes the add liquidity module
+        // Mint some cetus and usdc to Alice
+        let (cetus_addr, usdc_addr, _, _) = tests_assets::get_test_fas();
+        for (i in 0..9) {
+            swap::swap(
+                alice, // Sender is Alice
+                0, // Pool ID
+                100_000_000, // Amount of token CETUS to swap (0.1 CETUS)
+                true,
+                signer::address_of(bob), // Recipient is Alice
+                0, // Minimum amount of token USDC to receive (0 USDC)
+                0, // Minimum amount of token ciUSDC to receive (0 ciUSDC)
+            );
+            let get_product_reserves_sqrt = swap::get_product_reserves_sqrt(0);
+            let get_product_balances_sqrt = swap::get_product_balances_sqrt(0);
+            debug::print(&get_product_reserves_sqrt);
+            debug::print(&get_product_balances_sqrt);
+            assert!(
+                get_product_reserves_sqrt == get_product_balances_sqrt,
+                0 // The reserves and balances should be equal
+            );
+        }
     }
 }

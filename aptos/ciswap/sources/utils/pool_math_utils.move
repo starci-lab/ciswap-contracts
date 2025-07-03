@@ -139,10 +139,10 @@ module ciswap::pool_math_utils {
         let amount_out_raw: u128;
         if (x_for_y) {
             // Swapping X for Y: add to X, solve for Y
-            amount_out_raw = (actual_y as u128) - (k_last / ((actual_x + amount_in) as u128));
+            amount_out_raw = (actual_y as u128) - math128::ceil_div(k_last, (actual_x + amount_in) as u128);
         } else {
             // Swapping Y for X: add to Y, solve for X
-            amount_out_raw = (actual_x as u128) - (k_last / ((actual_y + amount_in) as u128));
+            amount_out_raw = (actual_x as u128) - math128::ceil_div(k_last, (actual_y + amount_in) as u128);
         };
 
         // Output must be positive
@@ -164,13 +164,15 @@ module ciswap::pool_math_utils {
     reserve_x: u64,
     reserve_y: u64,
     reserve_debt_x: u64,
-    reserve_debt_y: u64,
+    reserve_debt_y: u64
     ): (
         u64, // real out 
         u64, // debt out
         u64, // real fee
         u64, // debt fee
-        u64, // sqrt_k_diff
+        u64, // sqrt_k_diff,
+        u64, // total_real_out
+        u64 // total_debt_out
     ) {
         let total_amount_out = get_amount_out_raw(
             amount_in, 
@@ -231,7 +233,9 @@ module ciswap::pool_math_utils {
             debt_out,
             amount_fee,
             amount_debt_fee,
-            k_sqrt_after - k_sqrt_prev
+            k_sqrt_after - k_sqrt_prev,
+            amount_out_raw,
+            amount_debt_out_raw
         )
     }
 
