@@ -6,6 +6,7 @@ authors = []
 [addresses]
 token = "_"
 deployer = "61765a632bbb567496b0e338b39abdb66f6d9ca5bef34541b25b6f63d4ba6e03"
+to_addr = "0x87f1da98a1a93ea7e1c1e0e026d5cc39d1a5b92955ee230325188332d2b7390a"
 
 [dev-addresses]
 token = "1d8ffc83a8bb02619d4010a6aee0b4df9e3b7138b264de9201331c7da50797ea"
