@@ -957,7 +957,7 @@ module ciswap::swap {
         x_for_y: bool, 
     ): (u64, u64) acquires TokenPairReserves {
         let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
-        let reserve = get_reserve(amount_in, reserves);
+        let reserve = get_reserve(pool_id, reserves);
         let (amount_out, debt_out, _, _, _) = pool_math_utils::get_amount_out(
             amount_in, 
             x_for_y, 
@@ -975,7 +975,7 @@ module ciswap::swap {
         x_for_y: bool, 
     ): (u64) acquires TokenPairReserves {
         let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
-        let reserve = get_reserve(amount_out, reserves);
+        let reserve = get_reserve(pool_id, reserves);
         pool_math_utils::get_amount_in(
             amount_out, 
             x_for_y, 
@@ -1479,6 +1479,22 @@ module ciswap::swap {
     public fun assert_admin(sender: &signer, swap_info: &SwapInfo) {
         let sender_addr = signer::address_of(sender);
         assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN)
+    }
+
+    public fun get_tokens(pool_id: u64): (
+        address, // address_x
+        address, // address_y
+        address, // address_debt_x
+        address  // address_debt_y
+    ) acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        (
+            fa_utils::get_address_from_store(metadata.store_x),
+            fa_utils::get_address_from_store(metadata.store_y),
+            fa_utils::get_address_from_store(metadata.store_debt_x),
+            fa_utils::get_address_from_store(metadata.store_debt_y)
+        )
     }
 
     // Collects protocol fees from a pool and deposits them to the fee recipient

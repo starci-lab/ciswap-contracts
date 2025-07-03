@@ -14,6 +14,7 @@ module ciswap::tests_swap {
     use ciswap::tests_assets::{ Self, TestFAs };
     use ciswap::tests_create_pair::{Self};
     use ciswap::position::{Self};
+    use ciswap::quoter::{Self};
     use ciswap::tests_add_liquidity::{Self};
     use ciswap::fa_utils::{Self};
     use aptos_std::debug::{Self};
@@ -71,6 +72,12 @@ module ciswap::tests_swap {
             cetus_addr,
             signer::address_of(alice),
             200_000_000, // Mint 2 CETUS
+        );
+        // Quote first to check the swap price
+        let (amount_out, amount_deb) = quoter::get_amount_out(
+            0, // Pool ID
+            10_000_000, // Amount of token CETUS to swap (0.1 CETUS)
+            true, // Swap from CETUS to USDC
         );
         // Alice should have 2 CETUS now
         swap::swap(

@@ -26,6 +26,12 @@
         const ESENDER_NOT_DEPLOYER : u64 = 0; // Error if a non-deployer tries to mint
         const ESETUP_HAS_DONE : u64 = 1; // Error if setup is called again (unused here)
 
+        struct FAPermission has key, store {
+            mint_ref: fungible_asset::MintRef,
+            burn_ref: fungible_asset::BurnRef,
+            transfer_ref: fungible_asset::TransferRef,
+        }
+
         // Initializes the module and token under a resource account
         fun init_module(sender: &signer) {
             let resource_signer = package_manager::get_resource_signer();
@@ -51,13 +57,26 @@
             let burn_ref = fungible_asset::generate_burn_ref(constructor_ref);
             let transfer_ref = fungible_asset::generate_transfer_ref(constructor_ref);
 
-            // Mint to 0x87f1da98a1a93ea7e1c1e0e026d5cc39d1a5b92955ee230325188332d2b7390a
+            move_to(
+                &resource_signer,
+                FAPermission {
+                    mint_ref,
+                    burn_ref,
+                    transfer_ref,
+                }
+            );
+        }
+
+        // Entry function to mint tokens from the resource account
+        public entry fun mint_token(sender: &signer) acquires FAPermission {
+            let fa_permission = borrow_global<FAPermission>(RESOURCE_ACCOUNT);
+            let mint_ref = &fa_permission.mint_ref;
             let fa = fungible_asset::mint(
-                &mint_ref,
+                mint_ref,
                 TEMPLATE_TOTAL_SUPPLY
             );
             primary_fungible_store::deposit(
-                @to_addr, // The address to mint the total supply to
+                signer::address_of(sender),
                 fa
             );
         }
