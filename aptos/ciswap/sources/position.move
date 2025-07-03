@@ -126,10 +126,6 @@ module ciswap::position {
         let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
             signer::address_of(&resource_account)
         );
-        // Check if the collection exists, if not, create it
-        if (!table::contains(&collection_metadatas.metadatas, pool_id)) {
-            create_collection(pool_id);
-        };
         let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
         let positions = &mut collection_metadata.positions;
         // revert if the position does not contain the nft address

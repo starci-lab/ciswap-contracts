@@ -17,7 +17,7 @@ aptos_framework = "0x1"
 aptos_token_objects = "0x4"
 
 [dev-addresses]
-ciswap = "2a0f9315bc0087274a7249297189b1a43fa7f7a8d7a3daf239fc7d8674fe1afd"
+ciswap = "8174e1313b461a555c362c0522234497e4ed4c23389f6fd5ca8a8b176e960307"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"

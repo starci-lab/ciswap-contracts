@@ -895,7 +895,7 @@ module ciswap::swap {
         pool_id: u64,
         amount_x: u64,
         amount_y: u64
-    ): (u64, u64) {
+    ): (u64, u64) acquires PairEventHolder, TokenPairReserves, TokenPairMetadatas {
         let (desired_x, desired_y, k_diff) = add_liquidity_core(
             sender,
             pool_id,
@@ -929,7 +929,7 @@ module ciswap::swap {
         amount_x: u64,
         amount_y: u64,
         lp_nft_addr: address
-    ): (u64, u64) {
+    ): (u64, u64) acquires PairEventHolder, TokenPairReserves, TokenPairMetadatas {
         let (desired_x, desired_y, k_diff) = add_liquidity_core(
             sender,
             pool_id,
