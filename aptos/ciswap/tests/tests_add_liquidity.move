@@ -35,7 +35,7 @@ module ciswap::tests_add_liquidity {
         user: &signer,
         cetus_amount: u64, // 2 CETUS
         usdc_amount: u64 // 1 USDC
-    ) {
+    ): (address) {
         // Mint some cetus and usdc to Alice
         let (cetus_addr, usdc_addr, _, _) = tests_assets::get_test_fas();
         tests_assets::mint_to_address(
@@ -49,12 +49,14 @@ module ciswap::tests_add_liquidity {
             100_000_000, // Mint 1 USDC
         );
         // Alice call the create_pair function
-        swap::add_liquidity(
+        let (_, _, lp_nft_addr ) = swap::add_liquidity(
             user,
             0, // Pool ID
             200_000_000, // Amount of token A (e.g., 2 CETUS)
             100_000_000, // Amount of token B (e.g., 1 USDC)
         );
+
+        lp_nft_addr // Return the LP NFT address
     }
 
     /// Test: Create a new pair and check all balances and invariants
@@ -85,7 +87,7 @@ module ciswap::tests_add_liquidity {
             signer::address_of(alice),
             100_000_000, // Mint 2 USDC
         );
-        let (desired_x, desired_y) = swap::add_liquidity(
+        let (desired_x, desired_y, _) = swap::add_liquidity(
             alice,
             0, // Pool ID
             100_000_000, // Amount of token A (e.g., 1 CETUS)
@@ -102,7 +104,7 @@ module ciswap::tests_add_liquidity {
             ERR_K_LAST_MISMATCH
         ); // Check k_sqrt_last is updated correctly
 
-        let (desired_x, desired_y) = swap::add_liquidity(
+        let (desired_x, desired_y, _) = swap::add_liquidity(
             alice,
             0, // Pool ID
             100_000_000, // Amount of token A (e.g., 1 CETUS)

@@ -32,14 +32,10 @@ module ciswap::position {
     struct Position has key, store {
         pool_id: u64, // Pool this position belongs to
         k_sqrt_added: u64, // Amount of liquidity provided (sqrt K)
-        fee_growth_inside_x: u128, // Fee growth for X at the time of mint
-        fee_growth_inside_y: u128, // Fee growth for Y at the time of mint
-        fee_growth_inside_debt_x: u128, // Fee growth for virtual X at the time of mint
-        fee_growth_inside_debt_y: u128, // Fee growth for virtual Y at the time of mint
-        fee_owed_x: u64, // Fees owed in X
-        fee_owed_y: u64, // Fees owed in Y
-        fee_owed_debt_x: u64, // Fees owed in virtual X
-        fee_owed_debt_y: u64, // Fees owed in virtual Y
+        x_fee_growth_inside_x128: u128, // Fee growth for X at the time of mint
+        y_fee_growth_inside_x128: u128, // Fee growth for Y at the time of mint
+        debt_x_fee_growth_inside_x128: u128, // Fee growth for virtual X at the time of mint
+        debt_y_fee_growth_inside_x128: u128, // Fee growth for virtual Y at the time of mint
         burn_ref: BurnRef, // Burn capability for the NFT
         mutator_ref: MutatorRef // Mutator capability for the NFT
     }
@@ -171,14 +167,10 @@ module ciswap::position {
         let position = Position {
             pool_id,
             k_sqrt_added,
-            fee_growth_inside_x: 0,
-            fee_growth_inside_y: 0,
-            fee_growth_inside_debt_x: 0,
-            fee_growth_inside_debt_y: 0,
-            fee_owed_x: 0,
-            fee_owed_y: 0,
-            fee_owed_debt_x: 0,
-            fee_owed_debt_y: 0,
+            x_fee_growth_inside_x128: 0,
+            y_fee_growth_inside_x128: 0,
+            debt_x_fee_growth_inside_x128: 0,
+            debt_y_fee_growth_inside_x128: 0,
             burn_ref,
             mutator_ref
         };
@@ -225,19 +217,15 @@ module ciswap::position {
     // -------------------- Position Info --------------------
     /// Returns all fee and liquidity info for a user's position (LP NFT) in a pool.
     public fun get_position_info(
-        user_addr: address,
         pool_id: u64,
+        user_addr: address,
         nft_address: address
     ): (
         u64,   // k_sqrt_added
-        u128,  // fee_growth_inside_x
-        u128,  // fee_growth_inside_y
-        u128,  // fee_growth_inside_debt_x
-        u128,  // fee_growth_inside_debt_y
-        u64,   // fee_owed_x
-        u64,   // fee_owed_y
-        u64,   // fee_owed_debt_x
-        u64    // fee_owed_debt_y
+        u128,  // x_fee_growth_inside_x128
+        u128,  // y_fee_growth_inside_x128
+        u128,  // x_fee_growth_inside_debt_x128
+        u128,  // y_fee_growth_inside_debt_y_x128
     ) acquires CollectionMetadatas {
         let resource_signer = package_manager::get_resource_signer();
         let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
@@ -254,56 +242,21 @@ module ciswap::position {
         // Return all relevant position info
         (
             position.k_sqrt_added,
-            position.fee_growth_inside_x,
-            position.fee_growth_inside_y,
-            position.fee_growth_inside_debt_x,
-            position.fee_growth_inside_debt_y,
-            position.fee_owed_x,
-            position.fee_owed_y,
-            position.fee_owed_debt_x,
-            position.fee_owed_debt_y
+            position.x_fee_growth_inside_x128,
+            position.y_fee_growth_inside_x128,
+            position.debt_x_fee_growth_inside_x128,
+            position.debt_y_fee_growth_inside_x128,
         )
-    }
-
-    // -------------------- Fee Update --------------------
-    /// Updates the fee owed fields for a user's position (LP NFT).
-    public fun update_position_fee_owed(
-        user_addr: address,
-        pool_id: u64,
-        nft_addr: address,
-        updated_k_sqrt_added: u64,
-        updated_fee_owed_x: u64,
-        updated_fee_owed_y: u64,
-        updated_fee_owed_debt_x: u64,
-        updated_fee_owed_debt_y: u64
-    ) acquires CollectionMetadatas {
-        let resource_signer = package_manager::get_resource_signer();
-        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
-            signer::address_of(&resource_signer)
-        );
-        let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
-        let position = table::borrow_mut(&mut collection_metadata.positions, nft_addr);
-        assert_lp_nft_ownership(
-            user_addr,
-            pool_id,
-            nft_addr,
-            collection_metadata.name
-        );
-        // Overwrite the fee owed values
-        position.fee_owed_x                 = updated_fee_owed_x;
-        position.fee_owed_y                 = updated_fee_owed_y;
-        position.fee_owed_debt_x            = updated_fee_owed_debt_x;
-        position.fee_owed_debt_y            = updated_fee_owed_debt_y;
     }
 
     public fun update_position_fee_growth_inside(
         user_addr: address,
         pool_id: u64,
         nft_addr: address,
-        updated_fee_growth_inside_x: u128,
-        updated_fee_growth_inside_y: u128,
-        updated_fee_growth_inside_debt_x: u128,
-        updated_fee_growth_inside_debt_y: u128
+        updated_x_fee_growth_inside_x128: u128,
+        updated_y_fee_growth_inside_x128: u128,
+        updated_debt_x_fee_growth_inside_x128: u128,
+        updated_debt_y_updated_fee_growth_inside_x128: u128
     ) acquires CollectionMetadatas {
         let resource_signer = package_manager::get_resource_signer();
         let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
@@ -318,10 +271,10 @@ module ciswap::position {
             collection_metadata.name
         );
         // Overwrite the fee growth inside values
-        position.fee_growth_inside_x         = updated_fee_growth_inside_x;
-        position.fee_growth_inside_y         = updated_fee_growth_inside_y;
-        position.fee_growth_inside_debt_x    = updated_fee_growth_inside_debt_x;
-        position.fee_growth_inside_debt_y    = updated_fee_growth_inside_debt_y;
+        position.x_fee_growth_inside_x128         = updated_x_fee_growth_inside_x128;
+        position.y_fee_growth_inside_x128         = updated_y_fee_growth_inside_x128;
+        position.debt_x_fee_growth_inside_x128    = updated_debt_x_fee_growth_inside_x128;
+        position.debt_y_fee_growth_inside_x128    = updated_debt_y_updated_fee_growth_inside_x128;
     }
 
     public fun update_position_k_sqrt_added(
@@ -344,30 +297,6 @@ module ciswap::position {
         );
         // Overwrite the k_sqrt_added value
         position.k_sqrt_added = updated_k_sqrt_added;
-    }
-
-    public fun reset_position_fee_owed(
-        user_addr: address,
-        pool_id: u64,
-        nft_addr: address
-    ) acquires CollectionMetadatas {
-        let resource_signer = package_manager::get_resource_signer();
-        let collection_metadatas = borrow_global_mut<CollectionMetadatas>(
-            signer::address_of(&resource_signer)
-        );
-        let collection_metadata = table::borrow_mut(&mut collection_metadatas.metadatas, pool_id);
-        let position = table::borrow_mut(&mut collection_metadata.positions, nft_addr);
-        assert_lp_nft_ownership(
-            user_addr,
-            pool_id,
-            nft_addr,
-            collection_metadata.name
-        );
-        // Overwrite the fee owed values to zero
-        position.fee_owed_x                 = 0;
-        position.fee_owed_y                 = 0;
-        position.fee_owed_debt_x            = 0;
-        position.fee_owed_debt_y            = 0;
     }
 
     // ─────────────── Test Harness ───────────────

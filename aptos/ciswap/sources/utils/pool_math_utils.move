@@ -170,7 +170,6 @@ module ciswap::pool_math_utils {
         u64, // debt out
         u64, // real fee
         u64, // debt fee
-        u64, // sqrt_k_diff,
         u64, // total_real_out
         u64 // total_debt_out
     ) {
@@ -212,28 +211,11 @@ module ciswap::pool_math_utils {
         let amount_debt_fee = (amount_debt_out_raw * FEE) / 1_000_000;
         let amount_out = amount_out_raw - amount_fee;
         let debt_out = amount_debt_out_raw - amount_debt_fee;
-
-        let k_sqrt_after = if (x_for_y) {
-            get_k_sqrt(
-                reserve_x + amount_in, 
-                reserve_y - amount_out, 
-                reserve_debt_x, 
-                reserve_debt_y - debt_out
-            )
-        } else {
-            get_k_sqrt(
-                reserve_x - amount_out, 
-                reserve_y + amount_in, 
-                reserve_debt_x - debt_out, 
-                reserve_debt_y
-            )
-        };
         (
             amount_out,
             debt_out,
             amount_fee,
             amount_debt_fee,
-            k_sqrt_after - k_sqrt_prev,
             amount_out_raw,
             amount_debt_out_raw
         )

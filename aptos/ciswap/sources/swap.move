@@ -895,7 +895,7 @@ module ciswap::swap {
         pool_id: u64,
         amount_x: u64,
         amount_y: u64
-    ): (u64, u64) acquires PairEventHolder, TokenPairReserves, TokenPairMetadatas {
+    ): (u64, u64, address) acquires PairEventHolder, TokenPairReserves, TokenPairMetadatas {
         let (desired_x, desired_y, k_diff) = add_liquidity_core(
             sender,
             pool_id,
@@ -920,7 +920,7 @@ module ciswap::swap {
                 lp_nft_addr
             }
         );
-        (desired_x, desired_y)
+        (desired_x, desired_y, lp_nft_addr)
     }
 
     public fun increase_liquidity(
@@ -1014,12 +1014,9 @@ module ciswap::swap {
         fee_y: u64,
         fee_debt_x: u64,
         fee_debt_y: u64,
-        k_sqrt_diff: u64,
         metadata: &mut TokenPairMetadata
     ) {
-        // Safety check: prevent division by zero
-        assert!(k_sqrt_diff > 0, ERR_INVALID_AMOUNT);
-        
+        let k_sqrt_diff = metadata.k_sqrt_last - metadata.k_sqrt_locked;
         // Update fee growth using scaled arithmetic to maintain precision
         metadata.global_x_fee_growth_x128 += (((fee_x as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
         metadata.global_y_fee_growth_x128 += (((fee_y as u128) * SCALING_FACTOR) / (k_sqrt_diff as u128));
@@ -1034,7 +1031,7 @@ module ciswap::swap {
     ): (u64, u64) acquires TokenPairReserves {
         let reserves = borrow_global_mut<TokenPairReserves>(RESOURCE_ACCOUNT);
         let reserve = get_reserve(pool_id, reserves);
-        let (amount_out, debt_out, _, _, _, _, _) = pool_math_utils::get_amount_out(
+        let (amount_out, debt_out, _, _, _, _) = pool_math_utils::get_amount_out(
             amount_in, 
             x_for_y, 
             reserve.reserve_x, 
@@ -1091,7 +1088,6 @@ module ciswap::swap {
             amount_debt_out,
             amount_fee_out,
             amount_debt_fee_out,
-            k_sqrt_diff,
             amount_out_raw,
             amount_debt_out_raw
         ) = pool_math_utils::get_amount_out(
@@ -1214,10 +1210,9 @@ module ciswap::swap {
             // Update global fee tracking for LP positions
             update_fees_global(
                 0, 
-                0,
                 amount_fee_out_rest,
+                0,
                 amount_fee_debt_out_rest,
-                k_sqrt_diff,
                 metadata
             ); 
             // Update pool reserves after swap
@@ -1326,10 +1321,9 @@ module ciswap::swap {
             // Update global fee tracking for LP positions
             update_fees_global(
                 amount_fee_out_rest,
-                amount_fee_debt_out_rest,
                 0, 
+                amount_fee_debt_out_rest,
                 0,
-                k_sqrt_diff,
                 metadata
             );
             // Update pool reserves after swap
@@ -1417,17 +1411,13 @@ module ciswap::swap {
         // 1. Access position metadata
         let (
             k_sqrt_added, // k_sqrt_added
-            fee_growth_inside_x_x128, // fee_growth_inside_x_x128
-            fee_growth_inside_y_x128, // fee_growth_inside_y_x128
-            fee_growth_inside_debt_x_x128, // fee_growth_inside_debt_x_x128
-            fee_growth_inside_debt_y_x128, // fee_growth_inside_debt_y_x128
-            fee_owed_x, // fee_owed_x
-            fee_owed_y, // fee_owed_y
-            fee_owed_debt_x, // fee_owed_debt_x
-            fee_owed_debt_y // fee_owed_debt_y
+            x_fee_growth_inside_x128, // fee_growth_inside_x_x128
+            y_fee_growth_inside_x128, // fee_growth_inside_y_x128
+            x_fee_growth_inside_debt_x128, // fee_growth_inside_debt_x_x128
+            y_fee_growth_inside_debt_x128, // fee_growth_inside_debt_y_x128
         ) = position::get_position_info(
-            signer::address_of(sender),
             pool_id, 
+            signer::address_of(sender),
             nft_addr
         );
         // 2. Get current global fee growth
@@ -1435,10 +1425,10 @@ module ciswap::swap {
         let metadata = get_metadata_mut(pool_id, metadatas);
         
         // 3. Calculate fee delta
-        let fee_delta_x = metadata.global_x_fee_growth_x128 - fee_growth_inside_x_x128;
-        let fee_delta_y = metadata.global_y_fee_growth_x128 - fee_growth_inside_y_x128;
-        let fee_delta_debt_x = metadata.global_debt_x_fee_growth_x128 - fee_growth_inside_debt_x_x128;
-        let fee_delta_debt_y = metadata.global_debt_y_fee_growth_x128 - fee_growth_inside_debt_y_x128;
+        let fee_delta_x = metadata.global_x_fee_growth_x128 - x_fee_growth_inside_x128;
+        let fee_delta_y = metadata.global_y_fee_growth_x128 - y_fee_growth_inside_x128;
+        let fee_delta_debt_x = metadata.global_debt_x_fee_growth_x128 - x_fee_growth_inside_debt_x128;
+        let fee_delta_debt_y = metadata.global_debt_y_fee_growth_x128 - y_fee_growth_inside_debt_x128;
 
         // 4. Calculate actual fee amounts based on liquidity share
         let liquidity_share = k_sqrt_added;
@@ -1458,12 +1448,6 @@ module ciswap::swap {
             metadata.global_y_fee_growth_x128,
             metadata.global_debt_x_fee_growth_x128,
             metadata.global_debt_y_fee_growth_x128
-        );
-        // Reset the fee growth inside to zero
-        position::reset_position_fee_owed(
-            signer::address_of(sender),
-            pool_id,
-            nft_addr
         );
 
         // 6. Transfer fees to sender
@@ -1509,9 +1493,9 @@ module ciswap::swap {
         u64, // fee_x
         u64, // fee_y
         u64, // debt_fee_x
-        u64,  // debt_fee_y
+        u64, // debt_fee_y
         u64, // protocol_fee_x
-        u64,  // protocol_fee_y
+        u64, // protocol_fee_y
         u64, // protocol_fee_debt_x
         u64  // protocol_fee_debt_y
     ) acquires TokenPairMetadatas {
@@ -1526,6 +1510,22 @@ module ciswap::swap {
             fungible_asset::balance(metadata.store_protocol_fee_y),
             fungible_asset::balance(metadata.store_protocol_fee_debt_x),
             fungible_asset::balance(metadata.store_protocol_fee_debt_y)
+        )
+    }
+
+    public fun get_global_fees_growth(pool_id: u64): (
+        u128, // global_x_fee_growth_x128
+        u128, // global_y_fee_growth_x128
+        u128, // global_debt_x_fee_growth_x128
+        u128  // global_debt_y_fee_growth_x128
+    ) acquires TokenPairMetadatas {
+        let metadatas = borrow_global_mut<TokenPairMetadatas>(RESOURCE_ACCOUNT);
+        let metadata = get_metadata(pool_id, metadatas);
+        (
+            metadata.global_x_fee_growth_x128,
+            metadata.global_y_fee_growth_x128,
+            metadata.global_debt_x_fee_growth_x128,
+            metadata.global_debt_y_fee_growth_x128
         )
     }
 

@@ -18,10 +18,10 @@ module ciswap::tests_swap {
     use ciswap::tests_add_liquidity::{Self};
     use ciswap::fa_utils::{Self};
     use aptos_std::debug::{Self};
+    use aptos_framework::string::{Self};
     use ciswap::u64_utils::{Self};
     use aptos_framework::math128::{Self};
 
-    
     // Error codes for test assertions
     const ERR_BALANCE_X_MISMATCH: u64 = 0;
     const ERR_BALANCE_Y_MISMATCH: u64 = 1;
@@ -61,7 +61,7 @@ module ciswap::tests_swap {
             200_000_000, // 2 CETUS
             100_000_000  // 1 USDC
         ); // Initializes the add liquidity module
-        tests_add_liquidity::add_liquidity_for_test(
+        let lp_nft_addr = tests_add_liquidity::add_liquidity_for_test(
             alice,
             100_000_000, // 1 CETUS
             50_000_000   // 0.5 USDC
@@ -340,13 +340,6 @@ module ciswap::tests_swap {
             protocol_fee_debt_x,
             protocol_fee_debt_y
         ) = swap::get_fees(0); // Get the fees for pool ID 0
-        
-        // Check the fees collected
-        // debug::print(&fee_x);
-        debug::print(&fee_y);
-        // debug::print(&debt_fee_x);
-        debug::print(&debt_fee_y);
-        // debug::print(&protocol_fee_x);
         debug::print(&protocol_fee_y);
         //debug::print(&protocol_fee_debt_x);
         debug::print(&protocol_fee_debt_y);
@@ -377,7 +370,7 @@ module ciswap::tests_swap {
         account::create_account_for_test(signer::address_of(bob));
         tests_create_pair::create_pair_for_test(
             alice,
-            200_000_000, // 2 CETUS
+            100_000_000, // 1 CETUS
             100_000_000  // 1 USDC
         ); // Initializes the add liquidity module
         let (cetus_addr, usdc_addr, _, _) = tests_assets::get_test_fas();
@@ -391,10 +384,10 @@ module ciswap::tests_swap {
             signer::address_of(alice),
             100_000_000_000, // Mint 1000 USDC
         );
-        tests_add_liquidity::add_liquidity_for_test(
+        let lp_nft_addr = tests_add_liquidity::add_liquidity_for_test(
             alice,
-            100_000_000_000, // 1000 CETUS
-            100_000_000_000   // 1000 USDC
+            100_000_000, // 1 CETUS
+            100_000_000   // 1 USDC
         ); // Initializes the add liquidity module
         // Mint some cetus and usdc to Alice
         let (cetus_addr, usdc_addr, _, _) = tests_assets::get_test_fas();
@@ -402,7 +395,7 @@ module ciswap::tests_swap {
             swap::swap(
                 alice, // Sender is Alice
                 0, // Pool ID
-                100_000_000, // Amount of token CETUS to swap (0.1 CETUS)
+                10_000, // Amount of token CETUS to swap (1 CETUS)
                 true,
                 signer::address_of(bob), // Recipient is Alice
                 0, // Minimum amount of token USDC to receive (0 USDC)
@@ -410,8 +403,37 @@ module ciswap::tests_swap {
             );
             let get_product_reserves_sqrt = swap::get_product_reserves_sqrt(0);
             let get_product_balances_sqrt = swap::get_product_balances_sqrt(0);
-            debug::print(&get_product_reserves_sqrt);
-            debug::print(&get_product_balances_sqrt);
+            //debug::print(&get_product_reserves_sqrt);
+            //debug::print(&get_product_balances_sqrt);
+            let (
+                global_x_fee_growth_x128,
+                global_y_fee_growth_x128,
+                global_debt_x_fee_growth_x128,
+                global_debt_y_fee_growth_x128
+            ) = swap::get_global_fees_growth(0); // Get the fees for pool ID 0
+            let (
+                k_sqrt_added,
+                x_fee_growth_inside_x128,
+                y_fee_growth_inside_x128,
+                debt_x_fee_growth_inside_y_x128,
+                debt_y_fee_growth_inside_y_x128
+            ) = position::get_position_info(
+                0,
+                signer::address_of(alice), // Alice's address
+                lp_nft_addr
+            );
+            debug::print(&string::utf8(b"Global Fees Growth After Swap"));
+            debug::print(&global_x_fee_growth_x128);
+            debug::print(&global_debt_x_fee_growth_x128);
+            debug::print(&global_y_fee_growth_x128);
+            debug::print(&global_debt_y_fee_growth_x128);
+            debug::print(&string::utf8(b"Position Info After Swap"));
+            debug::print(&k_sqrt_added);
+            debug::print(&x_fee_growth_inside_x128);
+            debug::print(&debt_x_fee_growth_inside_y_x128);
+            debug::print(&y_fee_growth_inside_x128);
+            debug::print(&debt_y_fee_growth_inside_y_x128);
+
             assert!(
                 get_product_reserves_sqrt == get_product_balances_sqrt,
                 0 // The reserves and balances should be equal
