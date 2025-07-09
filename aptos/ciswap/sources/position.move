@@ -111,7 +111,7 @@ module ciswap::position {
     // -------------------- NFT Minting/Updating --------------------
     /// Mints a new LP NFT for a user, or updates an existing one if present.
     /// Transfers the NFT to the user.
-    public fun increase_lp_nft(
+    public fun increase_position(
         user: &signer,
         pool_id: u64,
         nft_addr: address,
@@ -137,7 +137,7 @@ module ciswap::position {
         };
     }
     
-    public fun create_then_transfer_lp_nft(
+    public fun mint_position(
         user: &signer,
         pool_id: u64,
         k_sqrt_added: u64,

@@ -76,17 +76,4 @@ module ciswap::quoter {
             x_for_y,
         )
     }
-
-    #[view]
-    public fun get_tokens(
-        pool_id: u64,
-    ): (
-        address, // Address of token X
-        address, // Address of token Y
-        address, // Address of the debt token X
-        address, // Address of the debt token Y
-    ) {
-        // Call the swap module's get_pair_info to retrieve pool info
-        swap::get_tokens(pool_id)
-    }
 }

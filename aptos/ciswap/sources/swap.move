@@ -29,6 +29,7 @@ module ciswap::swap {
     use ciswap::pool_math_utils::{Self};
     use ciswap::package_manager::{Self};
     use ciswap::position::{ Self };
+    use aptos_std::debug::{Self};
     use ciswap::fa_utils::{ Self };
     use aptos_framework::object::{ Self, Object };
     use ciswap::u64_utils::{Self};
@@ -423,8 +424,8 @@ module ciswap::swap {
         let address_debt_x = fa_utils::create_fungible_asset(
             &resource_signer,
             *string::bytes(&salt_x),
-            name,
-            symbol,
+            name_debt_x,
+            symbol_debt_x,
             fungible_asset::icon_uri(
                 fa_utils::get_metadata(address_x)
             ),
@@ -473,8 +474,8 @@ module ciswap::swap {
         let address_debt_y = fa_utils::create_fungible_asset(
             &resource_signer,
             *string::bytes(&salt_y),
-            name,
-            symbol,
+            name_debt_y,
+            symbol_debt_y,
             fungible_asset::icon_uri(
                 fa_utils::get_metadata(address_y)
             ),
@@ -903,7 +904,7 @@ module ciswap::swap {
             amount_y
         );
         // create a NFT LP representing the liquidity added 
-        let lp_nft_addr = position::create_then_transfer_lp_nft(
+        let lp_nft_addr = position::mint_position(
             sender,
             pool_id,
             k_diff
@@ -937,7 +938,7 @@ module ciswap::swap {
             amount_y
         );
         // create a NFT LP representing the liquidity added 
-        position::increase_lp_nft(
+        position::increase_position(
             sender,
             pool_id,
             lp_nft_addr,
@@ -1413,8 +1414,8 @@ module ciswap::swap {
             k_sqrt_added, // k_sqrt_added
             x_fee_growth_inside_x128, // fee_growth_inside_x_x128
             y_fee_growth_inside_x128, // fee_growth_inside_y_x128
-            x_fee_growth_inside_debt_x128, // fee_growth_inside_debt_x_x128
-            y_fee_growth_inside_debt_x128, // fee_growth_inside_debt_y_x128
+            debt_x_fee_growth_inside_x128, // fee_growth_inside_debt_x_x128
+            debt_y_fee_growth_inside_x128, // fee_growth_inside_debt_y_x128
         ) = position::get_position_info(
             pool_id, 
             signer::address_of(sender),
@@ -1427,17 +1428,13 @@ module ciswap::swap {
         // 3. Calculate fee delta
         let fee_delta_x = metadata.global_x_fee_growth_x128 - x_fee_growth_inside_x128;
         let fee_delta_y = metadata.global_y_fee_growth_x128 - y_fee_growth_inside_x128;
-        let fee_delta_debt_x = metadata.global_debt_x_fee_growth_x128 - x_fee_growth_inside_debt_x128;
-        let fee_delta_debt_y = metadata.global_debt_y_fee_growth_x128 - y_fee_growth_inside_debt_x128;
+        let fee_delta_debt_x = metadata.global_debt_x_fee_growth_x128 - debt_x_fee_growth_inside_x128;
+        let fee_delta_debt_y = metadata.global_debt_y_fee_growth_x128 - debt_y_fee_growth_inside_x128;
 
-        // 4. Calculate actual fee amounts based on liquidity share
-        let liquidity_share = k_sqrt_added;
-        let total_k_sqrt = metadata.k_sqrt_last - metadata.k_sqrt_locked;
-        
-        let collected_fee_x = pool_math_utils::get_collected_fee_amount(fee_delta_x, liquidity_share, total_k_sqrt);
-        let collected_fee_y = pool_math_utils::get_collected_fee_amount(fee_delta_y, liquidity_share, total_k_sqrt);
-        let collected_fee_debt_x = pool_math_utils::get_collected_fee_amount(fee_delta_debt_x, liquidity_share, total_k_sqrt);
-        let collected_fee_debt_y = pool_math_utils::get_collected_fee_amount(fee_delta_debt_y, liquidity_share, total_k_sqrt);
+        let collected_fee_x = pool_math_utils::get_collected_fee_amount(fee_delta_x, k_sqrt_added, SCALING_FACTOR);
+        let collected_fee_y = pool_math_utils::get_collected_fee_amount(fee_delta_y, k_sqrt_added, SCALING_FACTOR);
+        let collected_fee_debt_x = pool_math_utils::get_collected_fee_amount(fee_delta_debt_x, k_sqrt_added, SCALING_FACTOR);
+        let collected_fee_debt_y = pool_math_utils::get_collected_fee_amount(fee_delta_debt_y, k_sqrt_added, SCALING_FACTOR);
 
         // 5. Update position state
         position::update_position_fee_growth_inside(
@@ -1449,7 +1446,7 @@ module ciswap::swap {
             metadata.global_debt_x_fee_growth_x128,
             metadata.global_debt_y_fee_growth_x128
         );
-
+        
         // 6. Transfer fees to sender
         let address_fa_x = fa_utils::get_address_from_store(metadata.store_fee_x);
         let address_fa_y = fa_utils::get_address_from_store(metadata.store_fee_y);
@@ -1559,6 +1556,7 @@ module ciswap::swap {
         assert!(sender_addr == swap_info.admin, ERR_NOT_ADMIN)
     }
 
+    #[view]
     public fun get_tokens(pool_id: u64): (
         address, // address_x
         address, // address_y

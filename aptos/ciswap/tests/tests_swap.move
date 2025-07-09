@@ -438,6 +438,24 @@ module ciswap::tests_swap {
                 get_product_reserves_sqrt == get_product_balances_sqrt,
                 0 // The reserves and balances should be equal
             );
-        }
+        };
+
+        // test collect fee
+        let (
+            collected_fee_x,
+            collected_fee_y,
+            collected_debt_fee_x,
+            collected_debt_fee_y,
+        ) = swap::collect_fees(
+            alice, // Sender is Alice
+            0, // Pool ID
+            lp_nft_addr, // LP NFT address
+            signer::address_of(alice) // Recipient is Alice
+        );
+        debug::print(&string::utf8(b"Collected Fees After 10 Swaps"));
+        debug::print(&collected_fee_x);
+        debug::print(&collected_fee_y);
+        debug::print(&collected_debt_fee_x);
+        debug::print(&collected_debt_fee_y);
     }
 }

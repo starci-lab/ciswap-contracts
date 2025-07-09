@@ -338,10 +338,10 @@ module ciswap::pool_math_utils {
     public fun get_collected_fee_amount(
         fee_delta: u128,
         k_sqrt_added: u64,
-        total_k_sqrt: u64,
+        scaling_factor: u128,
     ): (u64) {
         // Calculate the collected fee based on the liquidity share and total k_sqrt
-        (fee_delta * (k_sqrt_added as u128) / (total_k_sqrt as u128)) as u64
+        ((fee_delta * (k_sqrt_added as u128)) / scaling_factor) as u64
     }
 
     public fun get_extracted_fees(
