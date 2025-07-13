@@ -1,0 +1,18 @@
+[package]
+name = "fa_factory"
+version = "1.0.0"
+authors = []
+
+[addresses]
+fa_factory = "_"
+deployer = "33a340e0dd7c1eb06288d20d791a738d1375c50c930499d1267232274fc4c019"
+
+[dev-addresses]
+fa_factory = "1d8ffc83a8bb02619d4010a6aee0b4df9e3b7138b264de9201331c7da50797ea"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]
