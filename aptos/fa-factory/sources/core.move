@@ -11,7 +11,7 @@
         use aptos_framework::option::{ Self }; // For optional values
         use aptos_framework::string::{ Self }; // For string operations
         use fa_factory::package_manager::{ Self }; // For package management and signer capabilities
-
+        use aptos_framework::table::{ Self, Table }; // For table operations
         // Constants
         const DEPLOYER: address = @deployer; // The address that deployed the module (replace in CLI with --named-addresses)
         const RESOURCE_ACCOUNT: address = @fa_factory; // The resource account address where the token is managed
@@ -26,6 +26,20 @@
             transfer_ref: fungible_asset::TransferRef,
         }
 
+        struct FAPermissions has key, store {
+            permissions: Table<address, FAPermission>,
+        }
+
+        fun init_module(sender: &signer) {
+            let resource_signer = package_manager::get_resource_signer();
+            move_to(
+                &resource_signer,
+                FAPermissions {
+                    permissions: table::new<address, FAPermission>(),
+                }
+            );
+        }
+
         // Entry function to mint tokens from the resource account
         public entry fun create_then_mint(
             sender: &signer, 
@@ -37,7 +51,7 @@
             icon_uri: vector<u8>, 
             project_uri: vector<u8>,
             to_addr: address
-        ) acquires FAPermission {
+        ) acquires FAPermissions {
             let resource_signer = package_manager::get_resource_signer();
             // Step 1: Create a temporary object used to deterministically derive the FA address.
             let constructor_ref = &object::create_named_object(&resource_signer, seed);
@@ -61,23 +75,24 @@
             let burn_ref = fungible_asset::generate_burn_ref(constructor_ref);
             let transfer_ref = fungible_asset::generate_transfer_ref(constructor_ref);
 
-            move_to(
-                &resource_signer,
-                FAPermission {
-                    mint_ref,
-                    burn_ref,
-                    transfer_ref,
-                }
-            );
-            let fa_permission = borrow_global<FAPermission>(RESOURCE_ACCOUNT);
-            let mint_ref = &fa_permission.mint_ref;
             let fa = fungible_asset::mint(
-                mint_ref,
+                &mint_ref,
                 total_supply
             );
             primary_fungible_store::deposit(
                 signer::address_of(sender),
                 fa
+            );
+            let fa_permissions = borrow_global_mut<FAPermissions>(RESOURCE_ACCOUNT);
+            let persmissions = &mut fa_permissions.permissions;
+            table::add(
+                persmissions,
+                fa_addr,
+                FAPermission {
+                    mint_ref,
+                    burn_ref,
+                    transfer_ref,
+                }
             );
         }
     }
